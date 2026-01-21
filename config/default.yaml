@@ -82,7 +82,7 @@ training:
   
   # 损失函数权重
   loss:
-    lambda_sup: 0.0              # 监督损失权重 (无 GT 时为 0)
+    lambda_sup: 1.0              # 监督损失权重 (无 GT 时为 0)
     lambda_coeff: 0.01           # 系数 L2 正则化权重
     lambda_smooth: 0.01          # 空间平滑性正则化权重
   
@@ -98,10 +98,10 @@ training:
 # 数据配置 (Data)
 # -----------------------------------------------------------------------------
 data:
-  batch_size: 2                  # 批大小
+  batch_size: 64                  # 批大小
   image_height: 256              # 图像高度
   image_width: 256               # 图像宽度
-  num_workers: 4                 # 数据加载线程数
+  num_workers: 8                 # 数据加载线程数
   
   # 数据增强
   augmentation:
@@ -134,6 +134,6 @@ experiment:
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备: "cuda" 或 "cpu"
   epochs: 100                    # 训练轮数
-  save_interval: 10              # 保存间隔 (epochs)
-  log_interval: 1                # 日志间隔 (epochs)
+  save_interval: 5              # 保存间隔 (epochs)
+  log_interval: 5                # 日志间隔 (epochs)
   output_dir: "results"          # 输出目录

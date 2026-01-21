@@ -90,7 +90,7 @@ class DualBranchTrainer:
                  physical_layer,
                  lr_restoration,
                  lr_optics,
-                 lambda_sup=0.0,
+                 lambda_sup=1.0,
                  lambda_coeff=0.01,
                  lambda_smooth=0.01,
                  device='cuda'):

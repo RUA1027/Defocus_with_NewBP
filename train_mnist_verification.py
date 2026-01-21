@@ -75,7 +75,7 @@ class MNISTMosaicDataset(Dataset):
         
         for i, pos in enumerate(self.positions):
             y, x = pos
-            digit_idx = indices[i]
+            digit_idx = int(indices[i].item())
             digit_img, _ = self.mnist_data[digit_idx] # [1, 28, 28]
             
             # Paste into canvas (replicate to 3 channels)
@@ -259,6 +259,11 @@ def main():
     # Create results dir
     os.makedirs(config.experiment.output_dir, exist_ok=True)
     
+    # Prepare fixed validation sample for consistent visualization
+    fixed_val_x = next(iter(dataloader)).to(device)
+    with torch.no_grad():
+        fixed_val_y = blur_generator.generate(fixed_val_x)
+
     loss_history = []
     
     for epoch in range(epochs):
@@ -285,7 +290,7 @@ def main():
             # Or just use the trainer as is. The trainer likely implements self-supervised loss if lambda_sup=0.
             
             # Use self-supervised training as per default config
-            stats = trainer.train_step(y_blurred, X_gt=None) 
+            stats = trainer.train_step(y_blurred, X_gt=x_clean) 
             # If you want to debug with supervised loss to verify net capacity:
             # stats = trainer.train_step(y_blurred, X_gt=x_clean) 
             
@@ -295,47 +300,51 @@ def main():
             if (i + 1) % 10 == 0:
                 print(f"Epoch [{epoch+1}/{epochs}] Step [{i+1}] Loss: {stats['loss']:.4f} (Smooth: {stats['loss_smooth']:.4f})")
                 
-            if i >= 50: # Limit steps per epoch for quick debug
-                break
+            # if i >= 50: # Limit steps per epoch for quick debug
+            #     break
         
         avg_loss = epoch_loss / steps
         loss_history.append(avg_loss)
         print(f"Epoch {epoch+1} Completed. Avg Loss: {avg_loss:.4f}")
+
+        # 7. Validation & Visualization
+        print(f"\n[Step 5] Saving Visualization Results (Epoch {epoch+1})...")
         
-    # 7. Validation & Visualization
-    print("\n[Step 5] Saving Visualization Results...")
-    
-    # Pick one sample
-    x_clean = x_clean[0:1] # [1, 3, H, W]
-    y_blurred = y_blurred[0:1] # [1, 3, H, W]
-    
-    with torch.no_grad():
-        restoration_net.eval()
-        x_pred = restoration_net(y_blurred)
-        x_pred = torch.clamp(x_pred, 0, 1)
+        # Pick one sample
+        val_clean = fixed_val_x[0:1] # [1, 3, H, W]
+        val_blurred = fixed_val_y[0:1] # [1, 3, H, W]
         
-    # Convert to numpy for plotting
-    def to_np(t):
-        return t.squeeze(0).permute(1, 2, 0).cpu().numpy()
+        with torch.no_grad():
+            restoration_net.eval()
+            val_pred = restoration_net(val_blurred)
+            val_pred = torch.clamp(val_pred, 0, 1)
+            # Switch back to train mode!
+            restoration_net.train()
+            
+        # Convert to numpy for plotting
+        def to_np(t):
+            return t.squeeze(0).permute(1, 2, 0).cpu().numpy()
+            
+        img_clean = to_np(val_clean)
+        img_blur = to_np(val_blurred)
+        img_pred = to_np(val_pred)
         
-    img_clean = to_np(x_clean)
-    img_blur = to_np(y_blurred)
-    img_pred = to_np(x_pred)
-    
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    axes[0].imshow(img_clean)
-    axes[0].set_title('GT Clean (Mosaic)')
-    axes[1].imshow(img_blur)
-    axes[1].set_title('GT Blurred (Simulated)')
-    axes[2].imshow(img_pred)
-    axes[2].set_title('Restoration')
-    
-    for ax in axes: ax.axis('off')
-    
-    save_path = os.path.join(config.experiment.output_dir, f'comparison_epoch{epochs}.png')
-    plt.tight_layout()
-    plt.savefig(save_path)
-    print(f"Saved comparison to: {save_path}")
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        axes[0].imshow(img_clean)
+        axes[0].set_title('GT Clean (Mosaic)')
+        axes[1].imshow(img_blur)
+        axes[1].set_title('GT Blurred (Simulated)')
+        axes[2].imshow(img_pred)
+        axes[2].set_title(f'Restoration (Epoch {epoch+1})')
+        
+        for ax in axes: ax.axis('off')
+        
+        save_path = os.path.join(config.experiment.output_dir, f'comparison_epoch{epoch+1}.png')
+        plt.tight_layout()
+        plt.savefig(save_path)
+        plt.close(fig) # Close figure to free memory
+        print(f"Saved comparison to: {save_path}")
+
     print("MNIST Verification Pipeline Completed.")
 
 if __name__ == '__main__':

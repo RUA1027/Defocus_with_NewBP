@@ -47,7 +47,7 @@ training:
     lr_optics: 1.0e-5            # 像差网络学习率
     weight_decay: 0.01
   loss:
-    lambda_sup: 0.0              # 自监督模式，无监督损失
+    lambda_sup: 1.0              # 自监督模式，无监督损失
     lambda_coeff: 0.01           # 系数正则化
     lambda_smooth: 0.01          # 空间平滑性正则化
   gradient_clip:
@@ -56,16 +56,16 @@ training:
   smoothness_grid_size: 16
 
 data:
-  batch_size: 4                  # 小批次调试
+  batch_size: 64                  # 小批次调试
   image_height: 256              # 图像高度 (MNIST 拼贴后)
   image_width: 256               # 图像宽度 (MNIST 拼贴后)
-  num_workers: 0                 # 单线程调试
+  num_workers: 8                 # 多线程调试
 
 experiment:
   name: "debug_mnist_mosaic"     # 实验名称
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备
   epochs: 50                      # 训练轮数 (快速验证)
-  save_interval: 1               # 每轮保存
-  log_interval: 1                # 每轮日志
+  save_interval: 5               # 每轮保存
+  log_interval: 5                # 每轮日志
   output_dir: "results/mnist_debug"  # 输出目录
