@@ -1,0 +1,70 @@
+# =============================================================================
+# MLP 像差网络实验配置
+# MLP Aberration Network Experiment Configuration
+# =============================================================================
+# 使用 MLP 版本的像差网络代替多项式版本
+
+physics:
+  n_modes: 15
+  pupil_size: 64
+  kernel_size: 33
+  oversample_factor: 2
+  ref_wavelength: 550.0e-9
+  wavelengths:
+    - 620.0e-9
+    - 550.0e-9
+    - 450.0e-9
+
+ola:
+  patch_size: 128
+  stride: 64
+  pad_to_power_2: true
+
+aberration_net:
+  n_coeffs: 15
+  a_max: 2.0
+  type: "mlp"                    # 使用 MLP 版本
+  polynomial:
+    degree: 2
+  mlp:
+    hidden_dim: 128              # 更大的隐层
+    use_fourier: true            # 启用傅里叶编码
+    fourier_scale: 10            # 更大的 scale 捕捉高频
+    a_max_mlp: 3.0
+
+restoration_net:
+  n_channels: 3
+  n_classes: 3
+  base_filters: 64
+  bilinear: true
+  use_coords: true
+
+training:
+  optimizer:
+    type: "adamw"
+    lr_restoration: 1.0e-4
+    lr_optics: 5.0e-6            # MLP 需要更小的学习率
+    weight_decay: 0.01
+  loss:
+    lambda_sup: 0.0
+    lambda_coeff: 0.02           # 更强的系数正则化
+    lambda_smooth: 0.1           # MLP 需要更强的平滑约束
+  gradient_clip:
+    restoration: 5.0
+    optics: 0.5                  # 更严格的梯度裁剪
+  smoothness_grid_size: 32
+
+data:
+  batch_size: 2
+  image_height: 256
+  image_width: 256
+  num_workers: 4
+
+experiment:
+  name: "mlp_aberration"
+  seed: 42
+  device: "cuda"
+  epochs: 150
+  save_interval: 15
+  log_interval: 1
+  output_dir: "results/mlp_experiment"
