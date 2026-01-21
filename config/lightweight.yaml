@@ -17,6 +17,7 @@ ola:
   patch_size: 64                 # 更小的补丁
   stride: 32
   pad_to_power_2: true
+  use_newbp: true
 
 aberration_net:
   n_coeffs: 10

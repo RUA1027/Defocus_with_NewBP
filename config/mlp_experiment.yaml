@@ -19,6 +19,7 @@ ola:
   patch_size: 128
   stride: 64
   pad_to_power_2: true
+  use_newbp: true
 
 aberration_net:
   n_coeffs: 15

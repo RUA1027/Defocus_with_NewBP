@@ -19,6 +19,7 @@ ola:
   patch_size: 256                # 更大的补丁
   stride: 128                    # 保持 50% 重叠
   pad_to_power_2: true
+  use_newbp: true
 
 aberration_net:
   n_coeffs: 15
