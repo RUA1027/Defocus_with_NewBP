@@ -10,10 +10,10 @@ class TestBackwardFlow(unittest.TestCase):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         # Setup
-        z_gen = DifferentiableZernikeGenerator(device=device)
-        ab_net = AberrationNet().to(device)
-        res_net = RestorationNet(n_channels=1, n_classes=1).to(device)
-        phy_layer = SpatiallyVaryingPhysicalLayer(ab_net, z_gen).to(device)
+        z_gen = DifferentiableZernikeGenerator(n_modes=15, pupil_size=64, kernel_size=31, device=device)
+        ab_net = AberrationNet(num_coeffs=15, hidden_dim=64, a_max=1.0).to(device)
+        res_net = RestorationNet(n_channels=1, n_classes=1, base_filters=64).to(device)
+        phy_layer = SpatiallyVaryingPhysicalLayer(ab_net, z_gen, patch_size=128, stride=64).to(device)
         
         # Dummy Input
         x = torch.randn(2, 1, 128, 128, device=device, requires_grad=True)

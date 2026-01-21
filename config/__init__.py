@@ -57,7 +57,8 @@ class OLAConfig:
     patch_size: int = 128
     stride: int = 64
     pad_to_power_2: bool = True
-    
+    use_newbp: bool = True
+    True
     def __post_init__(self):
         if self.stride > self.patch_size:
             raise ValueError(f"stride ({self.stride}) 不能大于 patch_size ({self.patch_size})")

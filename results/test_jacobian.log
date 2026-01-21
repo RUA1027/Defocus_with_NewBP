@@ -1,0 +1,13 @@
+
+=== Test 1: Jacobian Matrix Structure Analysis ===
+Jacobian Shape: torch.Size([256, 256])
+Max Diagonal Element: 0.162103
+Max Off-Diagonal Element: 0.098320
+[SUCCESS] Jacobian has significant off-diagonal elements (Spatial Crosstalk confirmed)
+[INFO] Jacobian visualization saved to results/test_jacobian_structure.png
+
+=== Test 2: Gradient Decomposition Analysis ===
+Total Gradient Norm: 1.436914
+Direct Gradient Norm: 0.031479
+Indirect Gradient Norm: 1.436569
+[SUCCESS] Indirect gradients detected (Neighboring pixels receive gradients)

@@ -11,7 +11,7 @@ class TestPSFNormalization(unittest.TestCase):
         batch_size = 10
         coeffs = torch.randn(batch_size, N, device=device)
         
-        generator = DifferentiableZernikeGenerator(n_modes=N, device=device)
+        generator = DifferentiableZernikeGenerator(n_modes=N, pupil_size=64, kernel_size=31, device=device)
         
         kernels = generator(coeffs) # [B, 1, K, K]
         

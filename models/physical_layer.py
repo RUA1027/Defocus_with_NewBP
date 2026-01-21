@@ -94,6 +94,7 @@ import torch.fft
 import math
 from .zernike import DifferentiableZernikeGenerator
 from .aberration_net import AberrationNet
+from .newbp_convolution import NewBPConvolutionFunction
 '''
 ┌─────────────────────────────────────────────────────────────┐
 │ 输入: x_hat [B, C, H, W]                                      │
@@ -168,7 +169,8 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
                  zernike_generator: DifferentiableZernikeGenerator,
                  patch_size,
                  stride,
-                 pad_to_power_2=True):
+                 pad_to_power_2=True,
+                 use_newbp=False):
         super().__init__()
         self.aberration_net = aberration_net
         self.zernike_generator = zernike_generator
@@ -176,6 +178,7 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
         self.stride = stride
         self.kernel_size = zernike_generator.kernel_size
         self.pad_to_power_2 = pad_to_power_2
+        self.use_newbp = use_newbp
         
         # Precompute window
         # Hann window 2D
@@ -395,7 +398,7 @@ reshape → [B*N_patches, C, P, P]
         else:
             raise ValueError(f"Channel mismatch: Input ({C}) and Kernel ({C_k}) are not compatible for broadcasting.")
         
-        # 4. FFT Convolution
+        # 4. FFT Convolution (with NewBP support)
         # Pad sizes
         '''
         补丁大小: P = 128
@@ -412,24 +415,35 @@ y_patches = y_large[15:143, 15:143]  # [128, 128]
         fft_size = P + K - 1
         if self.pad_to_power_2:
             fft_size = 2 ** math.ceil(math.log2(fft_size))
+        
+        if self.use_newbp:
+            # Use NewBP custom autograd function
+            # This implements backward pass with explicit non-diagonal Jacobian
+            y_patches = NewBPConvolutionFunction.apply(
+                patches, kernels, K, P, fft_size
+            )
+            # Determine C_out from result
+            C_out = y_patches.shape[1]
+        else:
+            # Standard FFT convolution (original implementation)
+            # Pad signals
+            # Patches: [B*N, C, P, P] -> [..., fft_size, fft_size]
             
-        # Pad signals
-        # Patches: [B*N, C, P, P] -> [..., fft_size, fft_size]
-        
-        X_f = torch.fft.rfft2(patches, s=(fft_size, fft_size))
-        K_f = torch.fft.rfft2(kernels, s=(fft_size, fft_size)) # Broadcasts over C
-        
-        Y_f = X_f * K_f # [B*N, C_out, size, size]
-        
-        y_patches_large = torch.fft.irfft2(Y_f, s=(fft_size, fft_size))
-        
-        # Crop result
-        # We want PxP output.
-        full_size = P + K - 1
-        crop_start = K // 2
-        
-        # Note: If C_out != C (e.g. broadcast from 1 to 3), y_patches now has C_out channels
-        y_patches = y_patches_large[..., crop_start : crop_start + P, crop_start : crop_start + P]
+            X_f = torch.fft.rfft2(patches, s=(fft_size, fft_size))
+            K_f = torch.fft.rfft2(kernels, s=(fft_size, fft_size)) # Broadcasts over C
+            
+            Y_f = X_f * K_f # [B*N, C_out, size, size]
+            
+            y_patches_large = torch.fft.irfft2(Y_f, s=(fft_size, fft_size))
+            
+            # Crop result
+            # We want PxP output.
+            full_size = P + K - 1
+            crop_start = K // 2
+            
+            # Note: If C_out != C (e.g. broadcast from 1 to 3), y_patches now has C_out channels
+            y_patches = y_patches_large[..., crop_start : crop_start + P, crop_start : crop_start + P]
+            C_out = y_patches.shape[1]
         
         # 5. Apply Window and Fold
         # Explicit dimension expansion for window

@@ -88,9 +88,11 @@ def build_models_from_config(config: Config, device: str):
         zernike_generator=zernike_gen,
         patch_size=config.ola.patch_size,
         stride=config.ola.stride,
-        pad_to_power_2=config.ola.pad_to_power_2
+        pad_to_power_2=config.ola.pad_to_power_2,
+        use_newbp=config.ola.use_newbp
     ).to(device)
-    print(f"  └─ 物理层: OLA (patch={config.ola.patch_size}, stride={config.ola.stride})")
+    name_algo = "NewBP" if config.ola.use_newbp else "Standard"
+    print(f"  └─ 物理层: OLA (patch={config.ola.patch_size}, stride={config.ola.stride}, algo={name_algo})")
     
     return zernike_gen, aberration_net, restoration_net, physical_layer
 
