@@ -119,6 +119,7 @@ class LossConfig:
     lambda_sup: float = 0.0
     lambda_coeff: float = 0.01
     lambda_smooth: float = 0.01
+    lambda_image_reg: float = 0.001
 
 
 @dataclass
@@ -140,14 +141,13 @@ class TrainingConfig:
 @dataclass
 class AugmentationConfig:
     """数据增强配置"""
-    horizontal_flip: bool = True
-    vertical_flip: bool = True
-    random_crop: bool = True
+    random_flip: bool = True
 
 
 @dataclass
 class DataConfig:
     """数据配置"""
+    data_root: str = "data/dpdd_1024"  # Default path
     batch_size: int = 2
     image_height: int = 256
     image_width: int = 256

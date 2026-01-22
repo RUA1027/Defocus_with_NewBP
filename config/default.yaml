@@ -8,7 +8,7 @@
 # -----------------------------------------------------------------------------
 physics:
   # Zernike 多项式相关
-  n_modes: 21                    # Zernike 模式数量 (Noll 1-15 -> 21)
+  n_modes: 15                    # Zernike 模式数量 (Noll 1-15 -> 21)
   pupil_size: 128                # 光瞳计算网格大小 (128 for High Res)
   kernel_size: 65                # PSF 卷积核大小 (65 for Large PSF)
   oversample_factor: 2           # FFT 过采样因子
@@ -34,7 +34,7 @@ ola:
 # -----------------------------------------------------------------------------
 aberration_net:
   # 通用参数
-  n_coeffs: 21                   # 输出 Zernike 系数数量 (与 physics.n_modes 保持一致)
+  n_coeffs: 15                   # 输出 Zernike 系数数量 (与 physics.n_modes 保持一致)
   a_max: 2.0                     # 系数约束范围 [-a_max, a_max]
   
   # 网络类型: "polynomial" 或 "mlp"
@@ -104,16 +104,18 @@ training:
 # 数据配置 (Data)
 # -----------------------------------------------------------------------------
 data:
-  batch_size: 4                  # 批大小 (Reduced for 1024px)
+  # 数据集根路径 (请指向预处理后的 dpdd_1024 文件夹)
+  data_root: "./data/dpdd_1024"
+
+  batch_size: 4                  # 批大小
   image_height: 1024             # 图像高度
   image_width: 1024              # 图像宽度
-  num_workers: 4                 # 数据加载线程数 (Reduced due to memory)
+  num_workers: 4                 # 数据加载线程数
   
   # 数据增强
   augmentation:
-    horizontal_flip: true
-    vertical_flip: true
-    random_crop: true
+    random_flip: true            # 开启随机水平/垂直翻转
+    # random_crop: true          # (已废弃/注释，使用全分辨率训练)
 
 # -----------------------------------------------------------------------------
 # 可视化配置 (Visualization)
