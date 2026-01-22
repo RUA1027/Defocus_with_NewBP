@@ -21,6 +21,51 @@ For circular PSF: K_flipped = K (symmetric), so the backward convolution uses th
 Reference: 科研日志.md lines 88-145 (NewBP视角下的具体梯度解析)
 """
 
+'''
+输入数据流
+────────────────────────────────────────────
+清晰图像 X [B*N, 3, 128, 128]
+  ↓ (零填充)
+X_padded [B*N, 3, 256, 256]
+  ↓ rfft2
+X_f [B*N, 3, 256, 129] (实数FFT)
+
+PSF 核 K [B*N, 3, 31, 31]
+  ↓ (零填充)
+K_padded [B*N, 3, 256, 256]
+  ↓ rfft2
+K_f [B*N, 3, 256, 129]
+
+     X_f × K_f (频域相乘)
+           ↓
+       Y_f [B*N, 3, 256, 129]
+           ↓ irfft2
+   Y_large [B*N, 3, 256, 256]
+           ↓ (裁剪中间 128×128)
+  输出 Y [B*N, 3, 128, 128] ✓
+
+────────────────────────────────────────────
+反向梯度流
+────────────────────────────────────────────
+下游梯度 ∂L/∂Y [B*N, 3, 128, 128]
+           ↓ (零填充)
+    [B*N, 3, 256, 256]
+           ↓ rfft2
+      G_f [B*N, 3, 256, 129]
+
+翻转核 flip(K) [B*N, 3, 31, 31]
+        ↓ rfft2
+   K_flip_f [B*N, 3, 256, 129]
+
+    G_f × K_flip_f (对输入梯度)
+           ↓
+     ∂L/∂X [B*N, 3, 128, 128] ✓
+
+conj(X_f) × G_f (对核梯度)
+        ↓ ifft2 + fftshift + 裁剪
+     ∂L/∂K [B*N, 3, 31, 31] ✓
+'''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
