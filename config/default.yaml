@@ -85,6 +85,7 @@ training:
     lambda_sup: 1.0              # 监督损失权重 (无 GT 时为 0)
     lambda_coeff: 0.01           # 系数 L2 正则化权重
     lambda_smooth: 0.01          # 空间平滑性正则化权重
+    lambda_image_reg: 0.001      # 图像 TV 正则化权重 (自监督关键)
   
   # 梯度裁剪
   gradient_clip:

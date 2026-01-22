@@ -117,6 +117,7 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         lambda_sup=config.training.loss.lambda_sup,
         lambda_coeff=config.training.loss.lambda_coeff,
         lambda_smooth=config.training.loss.lambda_smooth,
+        lambda_image_reg=config.training.loss.lambda_image_reg,
         device=device
     )
     
@@ -201,6 +202,7 @@ def main():
     print(f"  ├─ 学习率 (光学): {config.training.optimizer.lr_optics}")
     print(f"  ├─ λ_smooth: {config.training.loss.lambda_smooth}")
     print(f"  └─ λ_coeff: {config.training.loss.lambda_coeff}")
+    print(f"  └─ λ_image_reg: {config.training.loss.lambda_image_reg}")
     
     # 生成合成数据
     print("\n生成合成数据...")

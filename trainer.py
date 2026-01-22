@@ -90,9 +90,10 @@ class DualBranchTrainer:
                  physical_layer,
                  lr_restoration,
                  lr_optics,
-                 lambda_sup=1.0,
-                 lambda_coeff=0.01,
-                 lambda_smooth=0.01,
+                 lambda_sup=1.0, # 当你有清晰的图像作为参考（Ground Truth）时，这部分决定了模型对“清晰图”的还原程度有多在乎。
+                 lambda_coeff=0.01, # 防止网络预测出物理上不可能实现的巨大像差。它强制系数趋向于 0，符合“实际光学系统通常接近理想状态”的物理先验。
+                 lambda_smooth=0.01, # 约束相邻区域的像差不要突变。因为镜头物理属性是连续的，光学像差在空间分布上应该是平滑变化的（如边缘劣化是渐进的），这能有效抑制噪声。
+                 lambda_image_reg=0.0, # 保护复原后的图像不产生过多的伪影或高频噪声。在完全没有清晰图参考的自监督训练中，这个参数至关重要（防止模型通过制造噪声来强行拟合模糊图）。
                  device='cuda'):
         
         self.device = device
@@ -108,6 +109,7 @@ class DualBranchTrainer:
         self.lambda_sup = lambda_sup
         self.lambda_coeff = lambda_coeff
         self.lambda_smooth = lambda_smooth
+        self.lambda_image_reg = lambda_image_reg
         
         self.criterion_mse = nn.MSELoss()
         
@@ -171,10 +173,17 @@ class DualBranchTrainer:
         if self.lambda_smooth > 0:
             loss_smooth = self.compute_smoothness_loss()
         
+        # Image Regularization (TV Loss on X_hat)
+        # Crucial for self-supervised learning to suppress noise
+        loss_image_reg = torch.tensor(0.0, device=self.device)
+        if self.lambda_image_reg > 0:
+            loss_image_reg = self.compute_image_tv_loss(X_hat)
+        
         total_loss = loss_data + \
                      self.lambda_sup * loss_sup + \
                      self.lambda_coeff * loss_coeff + \
-                     self.lambda_smooth * loss_smooth
+                     self.lambda_smooth * loss_smooth + \
+                     self.lambda_image_reg * loss_image_reg
                      
         # 4. Backward
         total_loss.backward()
@@ -196,6 +205,7 @@ class DualBranchTrainer:
             'loss': total_loss.item(),
             'loss_data': loss_data.item(),
             'loss_smooth': loss_smooth.item(), # Added logging
+            'loss_image_reg': loss_image_reg.item(),
             'grad_W': gn_W.item(),
             'grad_Theta': gn_Theta.item()
         }
@@ -223,6 +233,16 @@ class DualBranchTrainer:
         dy = torch.abs(coeffs_map[:, 1:, :] - coeffs_map[:, :-1, :]).mean()
         dx = torch.abs(coeffs_map[:, :, 1:] - coeffs_map[:, :, :-1]).mean()
         
+        return dy + dx
+
+    def compute_image_tv_loss(self, img):
+        """
+        Compute Total Variation (TV) loss on the image.
+        L_tv = mean(|dI/dx| + |dI/dy|)
+        """
+        B, C, H, W = img.shape
+        dy = torch.abs(img[:, :, 1:, :] - img[:, :, :-1, :]).mean()
+        dx = torch.abs(img[:, :, :, 1:] - img[:, :, :, :-1]).mean()
         return dy + dx
 
     def save_checkpoint(self, path):
