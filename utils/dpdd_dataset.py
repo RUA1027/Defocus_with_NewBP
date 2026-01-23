@@ -28,7 +28,12 @@ class DPDDDataset(Dataset):
         super().__init__()
         self.root_dir = root_dir
         self.mode = mode
-        self.transform = transform
+
+        # Ensure transform is callable
+        if transform is None:
+            self.transform = transforms.Compose([transforms.ToTensor()])
+        else:
+            self.transform = transform
 
         # Determine sub-directories
         self.split_dir = os.path.join(root_dir, mode)
@@ -46,18 +51,6 @@ class DPDDDataset(Dataset):
         # Verify integrity
         assert len(self.blur_files) == len(self.sharp_files), \
             f"Mismatch number of images in {self.blur_dir} and {self.sharp_dir}"
-
-        # Optional: Checking if filenames match exactly can be slow for large datasets, 
-        # but good for safety. Since we sorted them and counts match, we usually assume alignment 
-        # if the preprocessing was done correctly.
-        
-        # Default transform if none provided (Basic ToTensor)
-        if self.transform is None:
-            self.default_transform = transforms.Compose([
-                transforms.ToTensor()
-            ])
-        else:
-            self.default_transform = None
 
     def _is_image(self, filename):
         return filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff'))
@@ -91,23 +84,8 @@ class DPDDDataset(Dataset):
         # For this implementation, we assume `self.transform` handles the tuple (blur, sharp) 
         # OR we just apply ToTensor if no transform is given.
         
-        if self.transform:
-            # Assumes transform can handle both, or the user handles it. 
-            # But standard torchvision transforms take one image. 
-            # To keep it simple and compliant with the request:
-            # "transform: Optional image transform operation" 
-            # "Apply transforms.ToTensor"
-            
-            # If the user provides a transform wrapper that handles (img, target), use it.
-            # Otherwise we might need a custom joint transform logic.
-            # Given the prompt, let's assume `transform` is applied or we default to ToTensor.
-            
-            # NOTE: Dealing with random augmentation (flips) separately is better practice.
-            # Here we just apply ToTensor() as the baseline.
-            blur_tensor = self.transform(blur_img)
-            sharp_tensor = self.transform(sharp_img)
-        else:
-            blur_tensor = self.default_transform(blur_img)
-            sharp_tensor = self.default_transform(sharp_img)
+        # Apply transforms
+        blur_tensor = self.transform(blur_img)
+        sharp_tensor = self.transform(sharp_img)
 
         return blur_tensor, sharp_tensor
