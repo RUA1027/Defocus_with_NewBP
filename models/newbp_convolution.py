@@ -13,57 +13,48 @@ Backward: ∂L/∂X = H^T · (∂L/∂Y)
 Gradient Decomposition (NewBP):
   ∂L/∂X[i,j] = G_direct + G_indirect
   
-  G_direct   = ∂L/∂Y[i,j] × K[0,0]           # Self-contribution
-  G_indirect = Σ_{(m,n)≠(0,0)} ∂L/∂Y[m,n] × K[i-m, j-n]  # Neighbor contributions
+  G_direct   = ∂L/∂Y[i,j] × K[0,0]           # Self-contribution (Diagonal elements)
+  G_indirect = Σ_{(m,n)≠(0,0)} ∂L/∂Y[m,n] × K[i-m, j-n]  # Neighbor contributions (Off-diagonal)
 
 For circular PSF: K_flipped = K (symmetric), so the backward convolution uses the same kernel.
 
 Reference: 科研日志.md lines 88-145 (NewBP视角下的具体梯度解析)
+
+Implementation Note (2026-01-23):
+---------------------------------
+Changed from FFT-based frequency domain multiplication to spatial domain convolution
+using F.conv2d for better GPU performance on small kernels (K <= 33).
+cuDNN provides optimized algorithms (Winograd, im2col) that outperform FFT approach
+when kernel size is small relative to image size.
 """
 
 '''
-输入数据流
+输入数据流 (空域卷积实现)
 ────────────────────────────────────────────
 清晰图像 X [B*N, 3, 128, 128]
-  ↓ (零填充)
-X_padded [B*N, 3, 256, 256]
-  ↓ rfft2
-X_f [B*N, 3, 256, 129] (实数FFT)
+  ↓ (reflect 填充 K//2)
+X_padded [B*N, 3, 143, 143]  (for K=31)
+  ↓ 
+Grouped Conv2d (groups=B*N*C)
+  ↓
+输出 Y [B*N, 3, 128, 128] ✓
 
 PSF 核 K [B*N, 3, 31, 31]
-  ↓ (零填充)
-K_padded [B*N, 3, 256, 256]
-  ↓ rfft2
-K_f [B*N, 3, 256, 129]
-
-     X_f × K_f (频域相乘)
-           ↓
-       Y_f [B*N, 3, 256, 129]
-           ↓ irfft2
-   Y_large [B*N, 3, 256, 256]
-           ↓ (裁剪中间 128×128)
-  输出 Y [B*N, 3, 128, 128] ✓
+  ↓ reshape
+K_grouped [B*N*3, 1, 31, 31]
 
 ────────────────────────────────────────────
-反向梯度流
+反向梯度流 (空域卷积实现)
 ────────────────────────────────────────────
 下游梯度 ∂L/∂Y [B*N, 3, 128, 128]
-           ↓ (零填充)
-    [B*N, 3, 256, 256]
-           ↓ rfft2
-      G_f [B*N, 3, 256, 129]
+  ↓ (constant 填充 K//2)
+  ↓ conv2d with flip(K)
+∂L/∂X [B*N, 3, 128, 128] ✓
 
-翻转核 flip(K) [B*N, 3, 31, 31]
-        ↓ rfft2
-   K_flip_f [B*N, 3, 256, 129]
-
-    G_f × K_flip_f (对输入梯度)
-           ↓
-     ∂L/∂X [B*N, 3, 128, 128] ✓
-
-conj(X_f) × G_f (对核梯度)
-        ↓ ifft2 + fftshift + 裁剪
-     ∂L/∂K [B*N, 3, 31, 31] ✓
+对核梯度:
+X.unfold(K) → [B*N, C*K*K, P*P]
+  ↓ bmm with ∂L/∂Y.flatten
+∂L/∂K [B*N, 3, 31, 31] ✓
 '''
 
 import torch
@@ -119,17 +110,67 @@ class NewBPConvolutionFunction(torch.autograd.Function):
         ctx.kernel_channels = C_k
         ctx.output_channels = C_out
         
-        # FFT Convolution
-        X_f = torch.fft.rfft2(patches, s=(fft_size, fft_size))
-        K_f = torch.fft.rfft2(kernels, s=(fft_size, fft_size))
-        Y_f = X_f * K_f  # Broadcasting handles channel differences
+        # =====================================================================
+        # Spatial Domain Convolution (GPU-optimized via cuDNN)
+        # Replaces FFT-based frequency domain multiplication for better performance
+        # on small kernels (K <= 33) where cuDNN excels.
+        #
+        # IMPORTANT: FFT convolution computes true convolution (kernel flipped),
+        # while F.conv2d computes cross-correlation (kernel NOT flipped).
+        # To match FFT results, we must flip the kernel before F.conv2d.
+        # =====================================================================
         
-        y_patches_large = torch.fft.irfft2(Y_f, s=(fft_size, fft_size))
+        BN = patches.shape[0]  # B * N_patches
         
-        # Crop to patch size
-        crop_start = kernel_size // 2
-        y_patches = y_patches_large[..., crop_start:crop_start + patch_size, 
-                                         crop_start:crop_start + patch_size]
+        # Flip kernel to convert correlation to convolution (match FFT behavior)
+        kernels_flipped = torch.flip(kernels, dims=[-2, -1])
+        
+        # Pad input for 'same' output size (kernel_size // 2 on each side)
+        # Use 'constant' (zero) padding to match FFT's implicit zero-padding
+        pad = kernel_size // 2
+        patches_padded = F.pad(patches, (pad, pad, pad, pad), mode='constant', value=0)
+        
+        # Per-sample convolution: each patch has its own kernel
+        # Use groups=BN to apply different kernels to different samples
+        # Reshape: [BN, C, H, W] -> [1, BN*C, H, W] for grouped conv
+        
+        if C == C_k:
+            # Case 1: Same channels - direct per-channel convolution
+            # Reshape patches: [BN, C, H, W] -> [1, BN*C, H, W]
+            patches_grouped = patches_padded.view(1, BN * C, 
+                                                   patches_padded.shape[2], 
+                                                   patches_padded.shape[3])
+            # Reshape flipped kernels: [BN, C, K, K] -> [BN*C, 1, K, K]
+            kernels_grouped = kernels_flipped.view(BN * C, 1, kernel_size, kernel_size)
+            
+            # Grouped convolution: each of BN*C groups has 1 input and 1 output channel
+            y_grouped = F.conv2d(patches_grouped, kernels_grouped, groups=BN * C)
+            
+            # Reshape back: [1, BN*C, P, P] -> [BN, C, P, P]
+            y_patches = y_grouped.view(BN, C, patch_size, patch_size)
+            
+        elif C == 1 and C_k > 1:
+            # Case 2: Grayscale input, multi-channel kernel (broadcast)
+            # Replicate input to match kernel channels
+            patches_expanded = patches_padded.expand(-1, C_k, -1, -1)
+            patches_grouped = patches_expanded.reshape(1, BN * C_k,
+                                                        patches_padded.shape[2],
+                                                        patches_padded.shape[3])
+            kernels_grouped = kernels_flipped.view(BN * C_k, 1, kernel_size, kernel_size)
+            
+            y_grouped = F.conv2d(patches_grouped, kernels_grouped, groups=BN * C_k)
+            y_patches = y_grouped.view(BN, C_k, patch_size, patch_size)
+            
+        else:  # C > 1 and C_k == 1
+            # Case 3: Multi-channel input, single kernel (broadcast kernel)
+            kernels_expanded = kernels_flipped.expand(-1, C, -1, -1)
+            patches_grouped = patches_padded.view(1, BN * C,
+                                                   patches_padded.shape[2],
+                                                   patches_padded.shape[3])
+            kernels_grouped = kernels_expanded.reshape(BN * C, 1, kernel_size, kernel_size)
+            
+            y_grouped = F.conv2d(patches_grouped, kernels_grouped, groups=BN * C)
+            y_patches = y_grouped.view(BN, C, patch_size, patch_size)
         
         return y_patches
     
@@ -145,86 +186,111 @@ class NewBPConvolutionFunction(torch.autograd.Function):
         C_in = ctx.input_channels
         C_out = ctx.output_channels
         
+        # =====================================================================
         # --- 1. Compute Gradient w.r.t Input Patches (dL/dX) ---
-        # Jacobian J = ∂Y/∂X convolution matrix. J^T = convolution with flipped kernel.
+        # =====================================================================
+        # Jacobian J = ∂Y/∂X is a convolution matrix.
+        # J^T corresponds to convolution with 180°-rotated (flipped) kernel.
+        # 
+        # NewBP Decomposition:
+        #   ∂L/∂X[i,j] = G_direct + G_indirect
+        #   - G_direct (diagonal):   grad_output[i,j] × K[center, center]
+        #   - G_indirect (off-diag): Σ grad_output[m,n] × K_flipped[i-m, j-n]
+        # 
+        # Since forward used flipped kernel (to match FFT convolution),
+        # backward needs the original (un-flipped) kernel for J^T.
+        # =====================================================================
         
-        kernels_flipped = torch.flip(kernels, dims=[-2, -1])
+        BN = grad_output.shape[0]
         
-        # FFT of gradient output
-        G_f = torch.fft.rfft2(grad_output, s=(fft_size, fft_size))
+        # Pad grad_output for 'same' convolution
+        pad = K // 2
+        grad_padded = F.pad(grad_output, (pad, pad, pad, pad), mode='constant', value=0)
         
-        # FFT Convolution for dL/dX
-        K_flip_f = torch.fft.rfft2(kernels_flipped, s=(fft_size, fft_size))
-        grad_X_f = G_f * K_flip_f
-        grad_patches_large = torch.fft.irfft2(grad_X_f, s=(fft_size, fft_size))
+        # Spatial convolution: grad_output * K (original, not flipped)
+        # Because forward used flip(K), backward J^T uses K directly
+        if C_out == kernels.shape[1]:
+            grad_grouped = grad_padded.view(1, BN * C_out, 
+                                            grad_padded.shape[2], grad_padded.shape[3])
+            k_grouped = kernels.view(BN * C_out, 1, K, K)
+            
+            grad_X_grouped = F.conv2d(grad_grouped, k_grouped, groups=BN * C_out)
+            grad_patches = grad_X_grouped.view(BN, C_out, P, P)
+        else:
+            # Handle broadcast cases
+            grad_grouped = grad_padded.view(1, BN * C_out,
+                                            grad_padded.shape[2], grad_padded.shape[3])
+            k_expanded = kernels.expand(-1, C_out, -1, -1) if kernels.shape[1] == 1 else kernels
+            k_grouped = k_expanded.reshape(BN * C_out, 1, K, K)
+            
+            grad_X_grouped = F.conv2d(grad_grouped, k_grouped, groups=BN * C_out)
+            grad_patches = grad_X_grouped.view(BN, C_out, P, P)
         
-        # Crop grad patches
-        crop_start = K // 2
-        grad_patches = grad_patches_large[..., crop_start:crop_start + P,
-                                               crop_start:crop_start + P]
-        
-        # Match input channels
+        # Match input channels for backward compatibility
         if grad_patches.shape[1] != C_in:
             if C_in == 1 and grad_patches.shape[1] > 1:
                 grad_patches = grad_patches.sum(dim=1, keepdim=True)
             elif C_in > 1 and grad_patches.shape[1] == 1:
                 grad_patches = grad_patches.repeat(1, C_in, 1, 1)
 
+        # =====================================================================
         # --- 2. Compute Gradient w.r.t Kernels (dL/dK) ---
-        # Convolution Y = X * K
-        # dL/dK = X correlation dL/dY
-        # In freq domain: dL/dK_f = conj(X_f) * G_f
-        
-        X_f = torch.fft.rfft2(patches, s=(fft_size, fft_size))
-        # Note: G_f is already computed
-        
-        # Correlation in freq domain: conj(Input) * Grad
-        grad_K_f = torch.conj(X_f) * G_f
-        
-        # Transform back to spatial
-        grad_kernels_large = torch.fft.irfft2(grad_K_f, s=(fft_size, fft_size))
-        
-        # The kernel gradient in correlation is conceptually centered.
-        # However, because we padded X and Y, the "valid" kernel gradient is at the start.
-        # But wait, FFT correlation circular shift rules apply.
-        # Standard method: 
-        #   valid_grad_kernel = irfft2(conj(X) * dL/dY)
-        #   Need to shift or crop carefully.
+        # =====================================================================
+        # For Y = X * K (convolution), the kernel gradient is:
+        #   dL/dK = X ⊛ dL/dY  (cross-correlation)
         # 
-        # Let's align with PyTorch convention:
-        # If output Y corresponds to valid part of X * K
-        # Then dL/dK corresponds to valid part of X * dL/dY (correlation)
+        # In spatial domain, this is equivalent to:
+        #   dL/dK[ki, kj] = Σ_{i,j} X[i+ki, j+kj] × dL/dY[i, j]
+        # 
+        # We use F.conv2d with flipped operands to compute this efficiently.
+        # =====================================================================
         
-        # Actually simpler: Since we computed Y_f = X_f * K_f
-        # Then dL/dK_f = conj(X_f) * dL/dY_f is correct for the full padded buffer.
-        # The relevant information for the kernel (size K) sits at the corners 
-        # (circular wrapping) because K is small compared to fft_size.
+        # Cross-correlation: patches ⊛ grad_output
+        # Equivalent to: conv2d(patches, grad_output_as_kernel)
+        # But we need per-sample correlation, so we use a loop or unfold trick
         
-        # Shift to center to make cropping easier
-        grad_kernels_shifted = torch.fft.fftshift(grad_kernels_large, dim=(-2, -1))
+        # For efficiency, compute using unfold + matmul pattern
+        # Unfold patches to extract all K×K windows
+        patches_unfolded = F.unfold(patches, kernel_size=K, padding=K//2)  # [BN, C*K*K, P*P]
         
-        # Center of the FFT buffer
-        center_h, center_w = fft_size // 2, fft_size // 2
+        # Reshape grad_output: [BN, C_out, P, P] -> [BN, C_out, P*P]
+        grad_flat = grad_output.view(BN, C_out, -1)  # [BN, C_out, P*P]
         
-        # The kernel size K is centered here
-        k_start = K // 2
-        # Crop [center - K/2 : center + K/2 + 1]
+        # Compute correlation via batch matrix multiply
+        # patches_unfolded: [BN, C_in*K*K, P*P]
+        # grad_flat: [BN, C_out, P*P]
+        # Result should be: [BN, C_k, K, K]
         
-        grad_kernels = grad_kernels_shifted[..., 
-                                           center_h - k_start : center_h - k_start + K,
-                                           center_w - k_start : center_w - k_start + K]
-                                           
-        # Ensure exact shape matches original kernels
-        if grad_kernels.shape != kernels.shape:
-             # Basic safety fallback if my manual shift logic is off by 1 pixel
-             # But let's trust standard fftshift for now or debugging will reveal.
-             pass
-             
-        # Sum over channels if output channels > input channels for broadcasting cases?
-        # Our forward logic: Y_f = X_f * K_f. 
-        # If K broadcasts over C, we need to sum gradients corresponding to that broadcast.
-        # But here X and K matched or broadcasted.
-        # Assume standard 1-to-1 or C-to-C for now as typical in this project.
+        C_k = kernels.shape[1]
+        
+        if C_in == C_out == C_k:
+            # Standard case: same channels throughout
+            # Per-channel correlation
+            grad_kernels_list = []
+            for c in range(C_in):
+                # Extract channel c windows: [BN, K*K, P*P]
+                patch_c = patches_unfolded[:, c*K*K:(c+1)*K*K, :]
+                # grad channel c: [BN, 1, P*P]
+                grad_c = grad_flat[:, c:c+1, :]
+                # Correlation: [BN, K*K, P*P] × [BN, P*P, 1] -> [BN, K*K, 1]
+                corr_c = torch.bmm(patch_c, grad_c.transpose(1, 2))  # [BN, K*K, 1]
+                grad_kernels_list.append(corr_c.view(BN, 1, K, K))
+            grad_kernels = torch.cat(grad_kernels_list, dim=1)  # [BN, C, K, K]
+        else:
+            # Broadcast cases: simplified computation
+            # For C_in=1, C_k>1 or C_in>1, C_k=1
+            # Sum over spatial positions
+            patches_unfolded_sum = patches_unfolded.view(BN, C_in, K*K, P*P)
+            grad_flat_expanded = grad_flat.view(BN, C_out, 1, P*P)
+            
+            # [BN, C_in, K*K, P*P] × [BN, C_out, P*P, 1] via einsum
+            # Output: [BN, max(C_in, C_out), K*K]
+            if C_in == 1:
+                corr = torch.einsum('bkp,bcp->bck', patches_unfolded_sum.squeeze(1), grad_flat)
+            else:  # C_k == 1
+                corr = torch.einsum('bckp,bp->bck', patches_unfolded_sum, grad_flat.squeeze(1))
+                corr = corr.sum(dim=1, keepdim=True)  # Sum over input channels
+            grad_kernels = corr.view(BN, C_k, K, K)
         
         return grad_patches, grad_kernels, None, None, None
 
@@ -285,27 +351,55 @@ def compute_jacobian_structure(kernel, image_size):
     # Create explicit Jacobian matrix
     jacobian = torch.zeros(N, N)
     
-    for i in range(image_size):
-        for j in range(image_size):
-            # Pixel index in flattened image
-            idx_i = i * image_size + j
+    # ---------------------------------------------------------------------
+    # Refactored: Vectorized implementation (O(K^2) loops instead of O(N^2))
+    # ---------------------------------------------------------------------
+    center = K // 2
+    device = jacobian.device # Use same device as target matrix
+    
+    for ki in range(K):
+        for kj in range(K):
+            val = kernel[ki, kj]
+            # Skip near-zero values for sparse efficiency
+            if abs(val) < 1e-12: continue
             
-            # For each neighbor pixel
-            for di in range(-(K//2), K//2 + 1):
-                for dj in range(-(K//2), K//2 + 1):
-                    ni, nj = i + di, j + dj
-                    
-                    # Check bounds
-                    if 0 <= ni < image_size and 0 <= nj < image_size:
-                        idx_j = ni * image_size + nj
-                        
-                        # Jacobian[i, j] = ∂Y[i] / ∂X[j]
-                        # For convolution: kernel coefficient at relative position
-                        ki = K//2 - di
-                        kj = K//2 - dj
-                        
-                        if 0 <= ki < K and 0 <= kj < K:
-                            jacobian[idx_i, idx_j] = kernel[ki, kj]
+            # Calculate displacement relative to center
+            # Original logic: ki = center - di => di = center - ki
+            di = center - ki
+            dj = center - kj
+            
+            # --- NewBP Gradient Separation ---
+            # 1. Direct Gradient (Diagonal Elements): 
+            #    Self-contribution where di=0, dj=0 (idx_i == idx_j)
+            # 2. Indirect Gradient (Off-Diagonal Elements):
+            #    Crosstalk from neighbors where di!=0 or dj!=0
+            is_diagonal = (di == 0) and (dj == 0)
+            
+            # Calculate valid output pixel range [i, j]
+            # Condition: 0 <= i < S AND 0 <= i+di < S
+            i_start = max(0, -di)
+            i_end = min(image_size, image_size - di)
+            
+            # Condition: 0 <= j < S AND 0 <= j+dj < S
+            j_start = max(0, -dj)
+            j_end = min(image_size, image_size - dj)
+            
+            if i_start < i_end and j_start < j_end:
+                # Vectorized index generation
+                i_idx = torch.arange(i_start, i_end, device=device)
+                j_idx = torch.arange(j_start, j_end, device=device)
+                
+                # Output indices (Rows of Jacobian): i * W + j
+                rows = (i_idx[:, None] * image_size + j_idx[None, :]).flatten()
+                
+                # Input indices (Cols of Jacobian): (i+di) * W + (j+dj)
+                # Note: di*W + dj is constant shift for this kernel element
+                cols = rows + (di * image_size + dj)
+                
+                # Batch assignment
+                # If is_diagonal: fills main diagonal (Direct Gradient)
+                # If not is_diagonal: fills off-diagonal band (Indirect Gradient)
+                jacobian[rows, cols] = val
     
     return jacobian
 

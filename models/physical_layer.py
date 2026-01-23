@@ -425,25 +425,47 @@ y_patches = y_large[15:143, 15:143]  # [128, 128]
             # Determine C_out from result
             C_out = y_patches.shape[1]
         else:
-            # Standard FFT convolution (original implementation)
-            # Pad signals
-            # Patches: [B*N, C, P, P] -> [..., fft_size, fft_size]
+            # =========================================================================
+            # Spatial Domain Convolution (GPU-optimized via cuDNN)
+            # Replaced FFT-based implementation for better performance on small kernels
+            # 
+            # IMPORTANT: Flip kernel to match FFT convolution behavior
+            # (F.conv2d computes correlation, FFT computes true convolution)
+            # =========================================================================
+            BN = patches.shape[0]  # B * N_patches
+            kernels_flipped = torch.flip(kernels, dims=[-2, -1])
+            pad = K // 2
+            patches_padded = F.pad(patches, (pad, pad, pad, pad), mode='constant', value=0)
             
-            X_f = torch.fft.rfft2(patches, s=(fft_size, fft_size))
-            K_f = torch.fft.rfft2(kernels, s=(fft_size, fft_size)) # Broadcasts over C
-            
-            Y_f = X_f * K_f # [B*N, C_out, size, size]
-            
-            y_patches_large = torch.fft.irfft2(Y_f, s=(fft_size, fft_size))
-            
-            # Crop result
-            # We want PxP output.
-            full_size = P + K - 1
-            crop_start = K // 2
-            
-            # Note: If C_out != C (e.g. broadcast from 1 to 3), y_patches now has C_out channels
-            y_patches = y_patches_large[..., crop_start : crop_start + P, crop_start : crop_start + P]
-            C_out = y_patches.shape[1]
+            if C == C_k:
+                # Same channels: per-channel grouped convolution
+                patches_grouped = patches_padded.view(1, BN * C,
+                                                       patches_padded.shape[2],
+                                                       patches_padded.shape[3])
+                kernels_grouped = kernels_flipped.view(BN * C, 1, K, K)
+                y_grouped = F.conv2d(patches_grouped, kernels_grouped, groups=BN * C)
+                y_patches = y_grouped.view(BN, C, P, P)
+                C_out = C
+            elif C == 1 and C_k > 1:
+                # Grayscale input, multi-channel kernel
+                patches_expanded = patches_padded.expand(-1, C_k, -1, -1)
+                patches_grouped = patches_expanded.reshape(1, BN * C_k,
+                                                            patches_padded.shape[2],
+                                                            patches_padded.shape[3])
+                kernels_grouped = kernels_flipped.view(BN * C_k, 1, K, K)
+                y_grouped = F.conv2d(patches_grouped, kernels_grouped, groups=BN * C_k)
+                y_patches = y_grouped.view(BN, C_k, P, P)
+                C_out = C_k
+            else:  # C > 1 and C_k == 1
+                # Multi-channel input, single kernel
+                kernels_expanded = kernels_flipped.expand(-1, C, -1, -1)
+                patches_grouped = patches_padded.view(1, BN * C,
+                                                       patches_padded.shape[2],
+                                                       patches_padded.shape[3])
+                kernels_grouped = kernels_expanded.reshape(BN * C, 1, K, K)
+                y_grouped = F.conv2d(patches_grouped, kernels_grouped, groups=BN * C)
+                y_patches = y_grouped.view(BN, C, P, P)
+                C_out = C
         
         # 5. Apply Window and Fold
         # Explicit dimension expansion for window
