@@ -34,40 +34,50 @@ Input (Blurred Y)
 ## Installation
 
 ```bash
-pip install torch torchvision numpy matplotlib
+pip install torch torchvision numpy matplotlib pyyaml tqdm
 ```
 
 ## Quick Start
 
-### 核心训练 (使用配置系统)
+### Training with Configuration System
 
-所有训练均通过统一的入口脚本 `demo_train.py` 执行，完全由配置文件驱动。
+All training workflows are managed by the unified entry point `demo_train.py`, driven entirely by configuration files.
 
 ```bash
-# 1. 使用默认配置 (标准训练)
+# 1. Standard Training (Default configuration)
 python demo_train.py
 
-# 2. 使用不同的预设配置
-python demo_train.py --config config/lightweight.yaml    # 快速测试
-python demo_train.py --config config/high_resolution.yaml # 高分辨率
+# 2. Using Presets
+python demo_train.py --config config/lightweight.yaml    # Fast testing on CPU/Laptop
+python demo_train.py --config config/high_resolution.yaml # High-res training (1K+ images)
 
-# 3. 命令行覆盖参数 (灵活调参)
+# 3. Command Line Overrides (Flexible tuning)
 python demo_train.py --config config/default.yaml training.epochs=200 data.batch_size=4
 ```
 
-可用的预设配置：
-- `config/default.yaml` - 标准配置 (均衡)
-- `config/lightweight.yaml` - 轻量级 (快速笔记本测试)
-- `config/high_resolution.yaml` - 高分辨率 (1K+ 图像)
-- `config/mlp_experiment.yaml` - 实验性架构 (MLP vs Polynomial)
+**Available Presets:**
+- `config/default.yaml` - Standard balanced configuration.
+- `config/lightweight.yaml` - Lightweight setup for debugging or quick testing.
+- `config/high_resolution.yaml` - Optimized for high-resolution images.
+- `config/mlp_experiment.yaml` - Experimental architecture options.
 
-详细的配置指南请参考 [CONFIG_USAGE_GUIDE.md](CONFIG_USAGE_GUIDE.md)。
+For a detailed guide on the configuration system, please refer to [CONFIG_USAGE_GUIDE.md](CONFIG_USAGE_GUIDE.md).
 
-This will:
+This process will:
+1. Load dataset (synthetic or DPDD).
+2. Train the dual-branch network.
+3. Save visualizations to `results/`.
 
-1. Generate synthetic blurred data
-2. Train the dual-branch network for 5 epochs
-3. Save results to `results/demo_result.png`
+### Data Preparation (DPDD Dataset)
+
+To train on the Dual-Pixel Defocus Deblurring (DPDD) dataset:
+
+1. Download the Canon test set (`test_c`) to `data/dd_dp_dataset_png/test_c`.
+2. Run the preprocessing script to format and resize images:
+   ```bash
+   python data/preprocess_dpdd.py
+   ```
+3. This will generate the standardized dataset at `data/dpdd_1024/`.
 
 ### Run Tests
 
@@ -77,27 +87,31 @@ python -m tests.test_psf_normalization
 
 # Test gradient flow through physics layer
 python -m tests.test_backward_flow
+
+# Test NewBP custom autograd function
+python -m tests.test_newbp_jacobian
 ```
 
 ## File Structure
 
 ```
-defocus(Claude) - 副本/
+defocus/
+├── config/                   # Configuration files (YAML)
+├── data/                     # Data loading and preprocessing
+│   └── preprocess_dpdd.py    # DPDD dataset preparation script
 ├── models/
 │   ├── __init__.py           # Module exports
 │   ├── zernike.py            # Zernike basis & PSF generation
+│   ├── newbp_convolution.py  # Custom Autograd for physics-aware gradients
+│   ├── physical_layer.py     # OLA spatially-varying convolution
 │   ├── aberration_net.py     # MLP for Zernike coefficients
-│   ├── restoration_net.py    # U-Net image restoration
-│   └── physical_layer.py     # OLA spatially-varying convolution
+│   └── restoration_net.py    # U-Net image restoration
 ├── utils/
 │   ├── __init__.py
 │   └── visualize.py          # Visualization utilities
-├── tests/
-│   ├── __init__.py
-│   ├── test_psf_normalization.py
-│   └── test_backward_flow.py
+├── tests/                    # Unit tests
 ├── trainer.py                # DualBranchTrainer
-├── demo_train.py             # Example training script
+├── demo_train.py             # Main entry point
 └── README.md
 ```
 
@@ -145,7 +159,23 @@ blurred = torch.randn(2, 1, 256, 256)
 restored = net(blurred)  # [2, 1, 256, 256]
 ```
 
-### 4. Physical Layer (`models/physical_layer.py`)
+### 4. NewBP Spatial Convolution (`models/newbp_convolution.py`)
+
+A custom Autograd function designed to handle the gradient flow of spatially-varying blur correctly.
+
+```python
+from models.newbp_convolution import NewBPSpatialConvolution
+
+# Enable comparison mode (diagonal gradients only) for ablation studies
+conv = NewBPSpatialConvolution(use_diagonal_only=False)
+```
+
+**Features:**
+- **Exact Gradient Decomposition**: Separates gradients into **Direct** (Diagonal) and **Indirect** (Crosstalk) components via a non-diagonal Jacobian.
+- **GPU Optimization**: Uses spatial `F.conv2d` with CuDNN optimizations (Winograd/Im2Col) for small kernels ($K \le 33$), significantly faster than FFT-based approaches for this kernel size regime.
+- **Ablation Support**: Supports `use_diagonal_only=True` to simulate traditional gradients that ignore spatial crosstalk.
+
+### 5. Physical Layer (`models/physical_layer.py`)
 
 Spatially-varying convolution via Overlap-Add:
 
@@ -214,7 +244,7 @@ plot_coefficient_maps(physical_layer, H=256, W=256, device='cuda', filename='coe
 - Patch size: P = 128 pixels
 - Stride: S = 64 pixels (50% overlap)
 - Window: Hann 2D for smooth blending
-- Convolution: FFT-based for efficiency
+- Convolution: **NewBP Spatial Convolution** (see above) allows for precise gradient control during backpropagation.
 
 ### Optimization
 
@@ -226,6 +256,7 @@ plot_coefficient_maps(physical_layer, H=256, W=256, device='cuda', filename='coe
 
 ✅ **PSF Normalization Test**: All kernels sum to 1.0000 ± 1e-5  
 ✅ **Gradient Flow Test**: Gradients successfully propagate to both W and Θ  
+✅ **NewBP Jacobian Test**: Verified non-diagonal structure of the convolution Jacobian.
 ✅ **Demo Training**: Loss converges, gradients remain active
 
 ## References
