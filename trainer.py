@@ -94,7 +94,8 @@ class DualBranchTrainer:
                  lambda_coeff=0.01, # 防止网络预测出物理上不可能实现的巨大像差。它强制系数趋向于 0，符合“实际光学系统通常接近理想状态”的物理先验。
                  lambda_smooth=0.01, # 约束相邻区域的像差不要突变。因为镜头物理属性是连续的，光学像差在空间分布上应该是平滑变化的（如边缘劣化是渐进的），这能有效抑制噪声。
                  lambda_image_reg=0.0, # 保护复原后的图像不产生过多的伪影或高频噪声。在完全没有清晰图参考的自监督训练中，这个参数至关重要（防止模型通过制造噪声来强行拟合模糊图）。
-                 device='cuda'):
+                 device='cuda',
+                 accumulation_steps=1):
         
         self.device = device
         self.restoration_net = restoration_net.to(device)
@@ -111,95 +112,121 @@ class DualBranchTrainer:
         self.lambda_smooth = lambda_smooth
         self.lambda_image_reg = lambda_image_reg
         
+        # Gradient Accumulation Settings
+        # accumulation_steps = 1: 标准训练（每步更新）
+        # accumulation_steps = 4: 梯度累积 4 步后再更新（模拟 4 倍 Batch Size）
+        self.accumulation_steps = max(1, accumulation_steps)
+        self.accumulation_counter = 0
+        
         self.criterion_mse = nn.MSELoss()
         
-        # History
+        # History - 记录还原后的真实 Loss（乘以 accumulation_steps 后，便于观察）
         self.history = {'loss_total': [], 'loss_data': [], 'loss_sup': [], 'grad_norm_W': [], 'grad_norm_Theta': []}
 
-    def train_step(self, Y, X_gt=None):
+    def train_step(self, Y, X_gt=None, crop_info=None, batch_idx=0):
         """
-        Y: Blurred input [B, C, H, W]
-        X_gt: Ground truth sharp image (optional) [B, C, H, W]
+        执行一个训练步骤，支持梯度累积和全局坐标对齐。
+        
+        Args:
+            Y: 模糊输入 [B, C, H, W]
+            X_gt: 清晰参考图像 [B, C, H, W]（可选）
+            crop_info: 裁剪信息张量，用于全局坐标对齐。
+                      形状：[4,] 或 [B, 4]，表示 [top_norm, left_norm, crop_h_norm, crop_w_norm]
+            batch_idx: 当前批在 epoch 中的索引，用于梯度累积判断
+        
+        Returns:
+            dict: 包含损失和梯度范数的字典
         """
         Y = Y.to(self.device)
         if X_gt is not None:
             X_gt = X_gt.to(self.device)
-            
-        self.optimizer_W.zero_grad()
-        self.optimizer_Theta.zero_grad()
+        if crop_info is not None:
+            crop_info = crop_info.to(self.device)
+        
+        # 梯度累积：仅在第一个累积步骤清除梯度
+        if self.accumulation_counter == 0:
+            self.optimizer_W.zero_grad()
+            self.optimizer_Theta.zero_grad()
         
         # 1. Restoration Branch
         X_hat = self.restoration_net(Y)
         
-        # 2. Physical Simulation Branch (Reblurring)
-        Y_hat = self.physical_layer(X_hat)
+        # 2. Physical Simulation Branch (Reblurring) - 传递 crop_info 用于全局坐标对齐
+        Y_hat = self.physical_layer(X_hat, crop_info=crop_info)
         
-        # 3. Losses
-        # Self-consistency loss (Data term)
+        # 3. 损失计算
+        # 自一致性损失（数据项）
         loss_data = self.criterion_mse(Y_hat, Y)
         
-        # Supervised loss (if available)
+        # 监督损失（如果有清晰参考图像）
         loss_sup = torch.tensor(0.0, device=self.device)
         if X_gt is not None:
             loss_sup = self.criterion_mse(X_hat, X_gt)
             
-        # Regularization on Optics
-        # We need access to coefficients to regularize them
-        # Let's run aberration net again on a grid to compute reg terms without affecting physical layer graph too much
-        # Or better, we can hook into physical layer? 
-        # For efficiency, we construct a dummy coordinate grid or sample random points for regularization.
-        # But strict OLA implies we used specific coords.
-        # Since physical_layer doesn't expose coeffs easily, let's regenerate for regularization on a standard grid.
-        
-        # Sample a 8x8 grid for smoothness/sparsity regularization
+        # 光学正则化
+        # 在网格上评估 AberrationNet 以计算正则化项
         reg_grid_size = 8
         coords = self.physical_layer.get_patch_centers(Y.shape[2], Y.shape[3], self.device)
-        # Downsample or take subset if too many
+        # 下采样或取子集
         if coords.shape[0] > 64:
             indices = torch.randperm(coords.shape[0])[:64]
             coords_sample = coords[indices]
         else:
             coords_sample = coords
             
-        coeffs = self.aberration_net(coords_sample) # [N, C]
+        coeffs = self.aberration_net(coords_sample)  # [N, C]
         
-        # L2 Regularization on coefficients (prefer small aberrations)
+        # L2 正则化：鼓励像差较小
         loss_coeff = torch.mean(coeffs**2)
         
-        # Spatial Smoothness
-        # Hard to compute gradients w.r.t u/v efficiently on random samples.
-        # If we want explicit smoothness, we should sample a dense grid and compute finite differences.
+        # 空间平滑性约束
         loss_smooth = torch.tensor(0.0, device=self.device)
         if self.lambda_smooth > 0:
             loss_smooth = self.compute_smoothness_loss()
         
-        # Image Regularization (TV Loss on X_hat)
-        # Crucial for self-supervised learning to suppress noise
+        # 图像总变分正则化（对复原后的图像）
         loss_image_reg = torch.tensor(0.0, device=self.device)
         if self.lambda_image_reg > 0:
             loss_image_reg = self.compute_image_tv_loss(X_hat)
         
+        # 总损失
         total_loss = loss_data + \
                      self.lambda_sup * loss_sup + \
                      self.lambda_coeff * loss_coeff + \
                      self.lambda_smooth * loss_smooth + \
                      self.lambda_image_reg * loss_image_reg
-                     
-        # 4. Backward
-        total_loss.backward()
         
-        # 5. Gradient Clipping (Optional but good for stability)
-        gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), 5.0)
-        gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), 1.0)
+        # 梯度累积：除以累积步数以模拟更大的 Batch Size
+        scaled_loss = total_loss / self.accumulation_steps
+        scaled_loss.backward()
         
-        self.optimizer_W.step()
-        self.optimizer_Theta.step()
+        # 更新累积计数器
+        self.accumulation_counter += 1
+        should_step = (self.accumulation_counter >= self.accumulation_steps)
         
-        # Logging
-        self.history['loss_total'].append(total_loss.item())
-        self.history['loss_data'].append(loss_data.item())
-        self.history['grad_norm_W'].append(gn_W.item())
-        self.history['grad_norm_Theta'].append(gn_Theta.item())
+        # 梯度裁剪和优化器更新
+        gn_W = torch.tensor(0.0, device=self.device)
+        gn_Theta = torch.tensor(0.0, device=self.device)
+        
+        if should_step:
+            # 梯度裁剪（可选但对稳定性有帮助）
+            gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), 5.0)
+            gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), 1.0)
+            
+            # 优化器步骤
+            self.optimizer_W.step()
+            self.optimizer_Theta.step()
+            
+            # 重置累积计数器
+            self.accumulation_counter = 0
+        
+        # 日志记录：记录还原后的真实损失（乘以 accumulation_steps）
+        # 这样可以在日志中看到每个有效更新步骤的真实损失值
+        if should_step:
+            self.history['loss_total'].append(total_loss.item())
+            self.history['loss_data'].append(loss_data.item())
+            self.history['grad_norm_W'].append(gn_W.item())
+            self.history['grad_norm_Theta'].append(gn_Theta.item())
         
         return {
             'loss': total_loss.item(),

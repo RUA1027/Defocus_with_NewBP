@@ -220,64 +220,77 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
         window_2d = torch.outer(hann, hann)
         self.register_buffer('window', window_2d)
 
-    def get_patch_centers(self, H, W, device):
-        # 计算所有补丁的中心坐标，并归一化到 [-1, 1] 范围内
-        '''
-        原始像素坐标计算:
-┌─────────────────────────────────────────────────────┐
-│ 补丁 1: 中心 (64, 64)     补丁 2: 中心 (128, 64)    │
-│ 补丁 3: 中心 (64, 128)    补丁 4: 中心 (128, 128)   │
-│ ...                                                  │
-│ 补丁 64: 中心 (512, 512)                            │
-│ 总共: √64 = 8 × 8 = 64 个补丁                       │
-└─────────────────────────────────────────────────────┘
-
-归一化过程:
-y_norm = (y_pixels / 576) * 2 - 1
-├─ 像素 (64) → 归一化 (64/576)*2 - 1 ≈ -0.778
-├─ 像素 (288) → 归一化 (288/576)*2 - 1 ≈ 0
-└─ 像素 (512) → 归一化 (512/576)*2 - 1 ≈ 0.778
-
-输出形状:
-┌──────────────────────────────────────────┐
-│ coords [64, 2]                           │
-│ 每行: [y_norm, x_norm]                   │
-│ 如: [[-0.778, -0.778], [-0.778, -0.556], ...]
-└──────────────────────────────────────────┘
-        '''
-
+    def get_patch_centers(self, H, W, device, H_orig=None, W_orig=None, crop_info=None):
+        """
+        计算所有补丁的中心坐标，并归一化到 [-1, 1] 范围内。
+        支持全局坐标对齐（Global Coordinate Alignment）。
+        
+        Args:
+            H, W: 当前（可能已填充的）图像尺寸
+            H_orig, W_orig: 原始图像尺寸（用于全局坐标计算）
+            crop_info: [top/H_orig, left/W_orig, crop_h/H_orig, crop_w/W_orig] 
+                      表示裁剪区域在原图中的归一化位置
+        
+        Returns:
+            coords [N_patches, 2]: 归一化坐标 (y, x) in [-1, 1]，
+                                   在全局坐标系中（如果提供了 crop_info）
+        """
+        
         # Calculate number of patches along H and W
-        # Unfold formula: L = (Size - Kernel)/Stride + 1
         n_h = (H - self.patch_size) // self.stride + 1
         n_w = (W - self.patch_size) // self.stride + 1
         
-        # Note: Unfold might drop pixels if (H - P) % S != 0. 
-        # Usually we pad input image to fit. 
-        # For this implementation, we assume input is suitable or we handle padding internally.
-        # Let's handle padding internally in forward.
-        
-        # Generate coordinates
+        # Generate coordinates in local (padded image) space
         # Center of first patch: P/2
         # Center of second patch: P/2 + S
-        # ...
-        y_centers = torch.arange(n_h, device=device) * self.stride + self.patch_size / 2
-        x_centers = torch.arange(n_w, device=device) * self.stride + self.patch_size / 2
+        y_centers_local = torch.arange(n_h, device=device) * self.stride + self.patch_size / 2
+        x_centers_local = torch.arange(n_w, device=device) * self.stride + self.patch_size / 2
         
-        # Normalize to [-1, 1]
-        # (y / H) * 2 - 1
-        y_norm = (y_centers / H) * 2 - 1
-        x_norm = (x_centers / W) * 2 - 1
+        # ============================================================================
+        # Global Coordinate Transformation
+        # 全局坐标变换：将局部补丁中心坐标还原为原图全局坐标
+        # ============================================================================
+        
+        if crop_info is not None and H_orig is not None and W_orig is not None:
+            # crop_info = [top_norm, left_norm, crop_h_norm, crop_w_norm]
+            # 其中每个值都是相对于原图尺寸的归一化量
+            
+            crop_info = crop_info.to(device)
+            top_norm, left_norm, crop_h_norm, crop_w_norm = crop_info
+            
+            # 还原像素坐标
+            top_pix = top_norm * H_orig
+            left_pix = left_norm * W_orig
+            crop_h_pix = crop_h_norm * H_orig
+            crop_w_pix = crop_w_norm * W_orig
+            
+            # 局部坐标 [0, H] 映射到全局坐标
+            # y_global_pix = y_local + top_pix
+            # x_global_pix = x_local + left_pix
+            y_centers_global = y_centers_local + top_pix
+            x_centers_global = x_centers_local + left_pix
+            
+            # 基于原图尺寸进行归一化到 [-1, 1]
+            y_norm = (y_centers_global / H_orig) * 2 - 1
+            x_norm = (x_centers_global / W_orig) * 2 - 1
+        else:
+            # 如果没有 crop_info，使用局部坐标（向后兼容）
+            y_norm = (y_centers_local / H) * 2 - 1
+            x_norm = (x_centers_local / W) * 2 - 1
         
         # Grid [N_h, N_w, 2]
         grid_y, grid_x = torch.meshgrid(y_norm, x_norm, indexing='ij')
-        coords = torch.stack([grid_y, grid_x], dim=-1) # [Nh, Nw, 2] (y, x) order to match AberrationNet
+        coords = torch.stack([grid_y, grid_x], dim=-1)  # [Nh, Nw, 2] (y, x) order
         
-        return coords.reshape(-1, 2) # [N_patches, 2]
+        return coords.reshape(-1, 2)  # [N_patches, 2]
 
-    def forward(self, x_hat):
+    def forward(self, x_hat, crop_info=None):
         """
-        x_hat: [B, C, H, W]
-        Returns: y_hat [B, C, H, W]
+        x_hat: [B, C, H, W] (输入图像)
+        crop_info: 可选，[top/H_orig, left/W_orig, crop_h/H_orig, crop_w/W_orig] 
+                   用于全局坐标对齐。如果为 None，使用局部坐标（向后兼容）。
+        
+        Returns: y_hat [B, C, H, W] (模糊图像)
         """
         B, C, H, W = x_hat.shape
         P = self.patch_size
@@ -375,7 +388,40 @@ reshape → [B*N_patches, C, P, P]
         # 光学系统的像差通常随视场角变化（如边缘失焦）
         # 中心清晰 → 边缘模糊的真实光学现象
 
-        coords_1img = self.get_patch_centers(H_pad, W_pad, x_hat.device)
+        # 获取补丁中心坐标，支持全局坐标对齐
+        if crop_info is not None:
+            # 如果提供了 crop_info，使用全局坐标系统
+            # crop_info 的形状取决于批大小：
+            # - 如果是单个样本: [4,] (top_norm, left_norm, crop_h_norm, crop_w_norm)
+            # - 如果是批处理: [B, 4]
+            
+            # 对于批处理情况，提取第一个样本的 crop_info（假设批内所有样本的 crop_info 相同）
+            if crop_info.dim() == 2:
+                crop_info_single = crop_info[0]  # [4,]
+            else:
+                crop_info_single = crop_info  # [4,]
+            
+            # 获取原始图像尺寸（基于 crop_info 推断）
+            # crop_h_norm 和 crop_w_norm 分别表示裁剪图像相对于原图的比例
+            # 当前图像尺寸 H, W 应该等于 crop_h_norm * H_orig 和 crop_w_norm * W_orig
+            # 反解得到 H_orig 和 W_orig
+            crop_h_norm = crop_info_single[2].item()
+            crop_w_norm = crop_info_single[3].item()
+            
+            if crop_h_norm > 0 and crop_w_norm > 0:
+                H_orig = int(H / crop_h_norm)
+                W_orig = int(W / crop_w_norm)
+            else:
+                H_orig = H
+                W_orig = W
+                crop_info_single = None
+            
+            coords_1img = self.get_patch_centers(H_pad, W_pad, x_hat.device, 
+                                                   H_orig=H_orig, W_orig=W_orig, 
+                                                   crop_info=crop_info_single)
+        else:
+            # 向后兼容：没有 crop_info 时使用局部坐标
+            coords_1img = self.get_patch_centers(H_pad, W_pad, x_hat.device)
         
         # Repeat for Batch
         # [B * N_patches, 2]
@@ -412,10 +458,12 @@ reshape → [B*N_patches, C, P, P]
 
             # Use NewBP custom autograd function
             # This implements backward pass with explicit non-diagonal Jacobian
-            y_patches = NewBPConvolutionFunction.apply(
+            y_patches_result = NewBPConvolutionFunction.apply(
                 patches, kernels, K, P, fft_size
             )
             # Determine C_out from result
+            assert isinstance(y_patches_result, torch.Tensor), "NewBP output must be Tensor"
+            y_patches = y_patches_result
             C_out = y_patches.shape[1]
 
         else:

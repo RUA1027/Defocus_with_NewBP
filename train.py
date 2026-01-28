@@ -89,17 +89,39 @@ def main():
         steps = 0
         
         pbar = tqdm(train_loader, desc=f"Train E{current_epoch}")
-        for blur_imgs, sharp_imgs in pbar:
-            # 数据搬运到 device 在 train_step 里也会做，但也可以这里做
-            metrics = trainer.train_step(Y=blur_imgs, X_gt=sharp_imgs)
+        
+        # 获取 accumulation_steps 用于日志打印控制
+        acc_steps = getattr(trainer, 'accumulation_steps', 1)
+        
+        for batch_idx, batch in enumerate(pbar):
+            # 处理字典格式的数据
+            if isinstance(batch, dict):
+                blur_imgs = batch['blur']
+                sharp_imgs = batch['sharp']
+                crop_info = batch.get('crop_info', None)
+            else:
+                # 兼容旧格式 (tuple)
+                blur_imgs, sharp_imgs = batch
+                crop_info = None
+
+            # 传递 crop_info 和 batch_idx 以支持全局坐标对齐和梯度累积
+            metrics = trainer.train_step(
+                Y=blur_imgs, 
+                X_gt=sharp_imgs,
+                crop_info=crop_info,
+                batch_idx=batch_idx
+            )
             
             epoch_loss += metrics['loss']
             steps += 1
             
-            pbar.set_postfix({
-                'Loss': f"{metrics['loss']:.4f}",
-                'Data': f"{metrics['loss_data']:.4f}"
-            })
+            # 仅在实际更新权重时（或每步）更新进度条
+            if (batch_idx + 1) % acc_steps == 0:
+                pbar.set_postfix({
+                    'Loss': f"{metrics['loss']:.4f}",
+                    'Data': f"{metrics['loss_data']:.4f}",
+                    'GradW': f"{metrics.get('grad_W', 0):.2f}"
+                })
             
         avg_loss = epoch_loss / max(steps, 1)
         print(f"  -> Avg Train Loss: {avg_loss:.6f}")
@@ -112,15 +134,29 @@ def main():
         val_steps = 0
         
         with torch.no_grad():
-            for blur_imgs, sharp_imgs in val_loader:
+            for batch in val_loader:
+                if isinstance(batch, dict):
+                    blur_imgs = batch['blur']
+                    sharp_imgs = batch['sharp']
+                    crop_info = batch.get('crop_info', None)
+                else:
+                    blur_imgs, sharp_imgs = batch
+                    crop_info = None
+                
                 blur_imgs = blur_imgs.to(device)
                 sharp_imgs = sharp_imgs.to(device)
                 
-                # 手动前向传播计算 Loss，或者给 Trainer 加一个 val_step?
-                # 这里简单手动计算 MSE
+                if crop_info is not None:
+                    crop_info = crop_info.to(device)
+                
+                # 手动前向传播计算 Loss
                 X_hat = trainer.restoration_net(blur_imgs)
-                feature_loss = trainer.criterion_mse(X_hat, sharp_imgs)
-                val_loss += feature_loss.item()
+                # 使用物理层进行验证 (可选，验证自一致性)
+                Y_hat = trainer.physical_layer(X_hat, crop_info=crop_info)
+                
+                # 计算与 GT 的 MSE
+                restoration_loss = trainer.criterion_mse(X_hat, sharp_imgs)
+                val_loss += restoration_loss.item()
                 val_steps += 1
         
         avg_val_loss = val_loss / max(val_steps, 1)

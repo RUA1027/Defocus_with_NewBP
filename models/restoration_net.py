@@ -176,7 +176,7 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 class RestorationNet(nn.Module):
-    def __init__(self, n_channels, n_classes, base_filters, bilinear=True, use_coords=False):
+    def __init__(self, n_channels, n_classes, base_filters=32, bilinear=True, use_coords=False):
         super(RestorationNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes

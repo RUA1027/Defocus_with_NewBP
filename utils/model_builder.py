@@ -85,6 +85,14 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
     Returns:
         DualBranchTrainer 对象
     """
+    # 尝试从配置中获取 accumulation_steps，如果没有则默认为 1
+    # Check if attribute exists (it might not be in config definition yet)
+    if hasattr(config.training, 'accumulation_steps'):
+        accumulation_steps = config.training.accumulation_steps
+    else:
+        # Fallback or default
+        accumulation_steps = 1
+        
     trainer = DualBranchTrainer(
         restoration_net=restoration_net,
         physical_layer=physical_layer,
@@ -94,6 +102,7 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         lambda_coeff=config.training.loss.lambda_coeff,
         lambda_smooth=config.training.loss.lambda_smooth,
         lambda_image_reg=config.training.loss.lambda_image_reg,
+        accumulation_steps=accumulation_steps,
         device=device
     )
     
