@@ -284,6 +284,29 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
         
         return coords.reshape(-1, 2)  # [N_patches, 2]
 
+    def compute_coefficient_smoothness(self, grid_size=16):
+        """
+        计算像差系数在视场上的空间平滑度 (TV)。
+
+        Args:
+            grid_size: 采样网格大小
+
+        Returns:
+            smoothness: TV loss 标量
+        """
+        device = next(self.aberration_net.parameters()).device
+        y = torch.linspace(-1, 1, grid_size, device=device)
+        x = torch.linspace(-1, 1, grid_size, device=device)
+        grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')
+        coords = torch.stack([grid_y.flatten(), grid_x.flatten()], dim=1)
+
+        coeffs = self.aberration_net(coords)
+        coeffs_map = coeffs.view(grid_size, grid_size, -1).permute(2, 0, 1)
+
+        dy = torch.abs(coeffs_map[:, 1:, :] - coeffs_map[:, :-1, :]).mean()
+        dx = torch.abs(coeffs_map[:, :, 1:] - coeffs_map[:, :, :-1]).mean()
+        return dy + dx
+
     def forward(self, x_hat, crop_info=None):
         """
         x_hat: [B, C, H, W] (输入图像)

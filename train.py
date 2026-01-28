@@ -11,6 +11,7 @@ import argparse
 import os
 import torch
 import sys
+import math
 from typing import Sized, cast
 from tqdm import tqdm
 
@@ -19,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import load_config
 from utils.model_builder import build_models_from_config, build_trainer_from_config, build_dataloader_from_config
+from utils.metrics import PerformanceEvaluator
 
 
 def main():
@@ -84,7 +86,7 @@ def main():
 
         # --- Stage Scheduling (自动基于 epoch) ---
         stage = trainer.get_stage(epoch)
-        weights = trainer.get_stage_weights(epoch)
+        print(f"  -> Stage: {stage}")
         
         epoch_loss = 0.0
         steps = 0
@@ -127,49 +129,32 @@ def main():
         avg_loss = epoch_loss / max(steps, 1)
         print(f"  -> Avg Train Loss: {avg_loss:.6f}")
         
-        # --- Validation Phase (Optional) ---
-        # 简单跑一下验证集 Loss
-        trainer.restoration_net.eval()
-        trainer.physical_layer.eval()
-        val_loss = 0.0
-        val_steps = 0
-        
-        with torch.no_grad():
-            for batch in val_loader:
-                if isinstance(batch, dict):
-                    blur_imgs = batch['blur']
-                    sharp_imgs = batch['sharp']
-                    crop_info = batch.get('crop_info', None)
+        # --- Validation Phase (Multi-metric Evaluation) ---
+        print("  -> Evaluating metrics on validation set...")
+        metrics = PerformanceEvaluator.evaluate_model(
+            restoration_net=trainer.restoration_net,
+            physical_layer=trainer.physical_layer,
+            val_loader=val_loader,
+            device=device,
+            smoothness_grid_size=config.training.smoothness_grid_size
+        )
+
+        try:
+            from tabulate import tabulate  # type: ignore
+            rows = []
+            for k, v in metrics.items():
+                if isinstance(v, float) and math.isnan(v):
+                    rows.append([k, "NaN"])
                 else:
-                    blur_imgs, sharp_imgs = batch
-                    crop_info = None
-                
-                blur_imgs = blur_imgs.to(device)
-                sharp_imgs = sharp_imgs.to(device)
-                
-                if crop_info is not None:
-                    crop_info = crop_info.to(device)
-                
-                if stage == 'physics_only':
-                    Y_hat = trainer.physical_layer(sharp_imgs, crop_info=crop_info)
-                    loss_data = trainer.criterion_mse(Y_hat, blur_imgs)
-                    val_loss += (weights['w_data'] * loss_data).item()
-                elif stage == 'restoration_fixed_physics':
-                    X_hat = trainer.restoration_net(blur_imgs)
-                    Y_hat = trainer.physical_layer(X_hat, crop_info=crop_info)
-                    loss_data = trainer.criterion_mse(Y_hat, blur_imgs)
-                    loss_sup = trainer.criterion_l1(X_hat, sharp_imgs)
-                    val_loss += (weights['w_data'] * loss_data + weights['w_sup'] * loss_sup).item()
+                    rows.append([k, f"{v:.6f}"] if isinstance(v, float) else [k, str(v)])
+            print(tabulate(rows, headers=["Metric", "Value"], tablefmt="github"))
+        except Exception:
+            for k, v in metrics.items():
+                if isinstance(v, float) and math.isnan(v):
+                    v_str = "NaN"
                 else:
-                    X_hat = trainer.restoration_net(blur_imgs)
-                    Y_hat = trainer.physical_layer(X_hat, crop_info=crop_info)
-                    loss_data = trainer.criterion_mse(Y_hat, blur_imgs)
-                    loss_sup = trainer.criterion_l1(X_hat, sharp_imgs)
-                    val_loss += (weights['w_data'] * loss_data + weights['w_sup'] * loss_sup).item()
-                val_steps += 1
-        
-        avg_val_loss = val_loss / max(val_steps, 1)
-        print(f"  -> Avg Val MSE: {avg_val_loss:.6f}")
+                    v_str = f"{v:.6f}" if isinstance(v, float) else str(v)
+                print(f"  - {k}: {v_str}")
 
         # --- Checkpointing ---
         if current_epoch % config.experiment.save_interval == 0:

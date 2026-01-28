@@ -252,7 +252,7 @@ class DualBranchTrainer:
                 if w_coeff > 0:
                     loss_coeff = torch.mean(coeffs**2)
                 if w_smooth > 0:
-                    loss_smooth = self.compute_smoothness_loss(self.smoothness_grid_size)
+                    loss_smooth = self.physical_layer.compute_coefficient_smoothness(self.smoothness_grid_size)
 
         # Stage 2/3: 复原网络参与
         else:
@@ -275,7 +275,7 @@ class DualBranchTrainer:
                 if w_coeff > 0:
                     loss_coeff = torch.mean(coeffs**2)
                 if w_smooth > 0:
-                    loss_smooth = self.compute_smoothness_loss(self.smoothness_grid_size)
+                    loss_smooth = self.physical_layer.compute_coefficient_smoothness(self.smoothness_grid_size)
 
         # ========================== Weighted Loss ============================
         loss_data_w = w_data * loss_data
@@ -332,31 +332,6 @@ class DualBranchTrainer:
             'grad_Theta': gn_Theta.item() if isinstance(gn_Theta, torch.Tensor) else gn_Theta,
             'stage': current_stage
         }
-
-    def compute_smoothness_loss(self, grid_size=16):
-        """
-        Compute Total Variation (TV) loss on the coefficient map.
-        Samples the AberrationNet on a regular grid to estimate smoothness.
-        """
-        # Create grid [-1, 1]
-        y = torch.linspace(-1, 1, grid_size, device=self.device)
-        x = torch.linspace(-1, 1, grid_size, device=self.device)
-        grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')
-        
-        # Flatten: [N, 2]
-        coords = torch.stack([grid_y.flatten(), grid_x.flatten()], dim=1)
-        
-        # Predict: [N, n_coeffs]
-        coeffs = self.aberration_net(coords)
-        
-        # Reshape: [n_coeffs, H, W]
-        coeffs_map = coeffs.view(grid_size, grid_size, -1).permute(2, 0, 1)
-        
-        # TV Loss: mean(|dx| + |dy|)
-        dy = torch.abs(coeffs_map[:, 1:, :] - coeffs_map[:, :-1, :]).mean()
-        dx = torch.abs(coeffs_map[:, :, 1:] - coeffs_map[:, :, :-1]).mean()
-        
-        return dy + dx
 
     def compute_image_tv_loss(self, img):
         """
