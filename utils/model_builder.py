@@ -102,6 +102,8 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         lambda_coeff=config.training.loss.lambda_coeff,
         lambda_smooth=config.training.loss.lambda_smooth,
         lambda_image_reg=config.training.loss.lambda_image_reg,
+        stage_schedule=config.training.stage_schedule,
+        smoothness_grid_size=config.training.smoothness_grid_size,
         accumulation_steps=accumulation_steps,
         device=device
     )

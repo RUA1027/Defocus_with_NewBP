@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 import time
+from typing import Any, Mapping
 
 '''
 ================================================================================
@@ -66,11 +67,13 @@ class DualBranchTrainer:
                  lr_restoration,
                  lr_optics,
                  lambda_sup=1.0,
-                 lambda_coeff=0.01,
-                 lambda_smooth=0.01,
+                 lambda_coeff=0.05,
+                 lambda_smooth=0.1,
                  lambda_image_reg=0.0,
+                 stage_schedule=None,
+                 smoothness_grid_size=16,
                  device='cuda',
-                 accumulation_steps=1):
+                 accumulation_steps=4):
 
         self.device = device
         self.restoration_net = restoration_net.to(device)
@@ -83,11 +86,22 @@ class DualBranchTrainer:
         self.optimizer_W = optim.AdamW(self.restoration_net.parameters(), lr=lr_restoration)
         self.optimizer_Theta = optim.AdamW(self.aberration_net.parameters(), lr=lr_optics)
 
-        # 损失权重
+        # 兼容旧配置（已弃用的固定权重，仅保留字段）
         self.lambda_sup = lambda_sup
         self.lambda_coeff = lambda_coeff
         self.lambda_smooth = lambda_smooth
         self.lambda_image_reg = lambda_image_reg
+
+        # 三阶段调度 (可为 dict 或 dataclass)
+        default_schedule = {
+            'stage1_epochs': 80,
+            'stage2_epochs': 80,
+            'stage3_epochs': 40
+        }
+        self.stage_schedule: Any = stage_schedule if stage_schedule is not None else default_schedule
+
+        # 平滑正则采样网格大小
+        self.smoothness_grid_size = smoothness_grid_size
 
         # 梯度累积
         self.accumulation_steps = max(1, accumulation_steps)
@@ -107,59 +121,103 @@ class DualBranchTrainer:
         }
 
     # =========================================================================
-    #                          冻结/解冻工具函数
+    #                          阶段调度与冻结策略
     # =========================================================================
-    def _set_trainable(self, module: nn.Module, trainable: bool):
-        for param in module.parameters():
-            param.requires_grad = trainable
+    def _get_stage(self, epoch: int) -> str:
+        """根据 epoch(0-indexed) 获取当前阶段"""
+        if isinstance(self.stage_schedule, Mapping):
+            s1 = self.stage_schedule.get('stage1_epochs', 80)
+            s2 = self.stage_schedule.get('stage2_epochs', 80)
+        else:
+            s1 = getattr(self.stage_schedule, 'stage1_epochs', 80)
+            s2 = getattr(self.stage_schedule, 'stage2_epochs', 80)
 
-    def _freeze_restoration(self):
-        self._set_trainable(self.restoration_net, False)
+        if epoch < s1:
+            return 'physics_only'
+        elif epoch < s1 + s2:
+            return 'restoration_fixed_physics'
+        return 'joint'
 
-    def _unfreeze_restoration(self):
-        self._set_trainable(self.restoration_net, True)
-
-    def _freeze_physics(self):
-        self._set_trainable(self.aberration_net, False)
-
-    def _unfreeze_physics(self):
-        self._set_trainable(self.aberration_net, True)
-
-    def set_stage(self, stage: str):
-        if stage not in self.VALID_STAGES:
-            raise ValueError(f"Invalid stage '{stage}'. Must be one of {self.VALID_STAGES}")
-
-        self._current_stage = stage
+    def _get_stage_weights(self, stage: str):
+        """根据阶段返回动态 Loss 权重"""
+        weights = {
+            'w_data': 1.0,
+            'w_sup': 0.0,
+            'w_smooth': 0.0,
+            'w_coeff': 0.0,
+            'w_img_reg': 0.0
+        }
 
         if stage == 'physics_only':
-            self._freeze_restoration()
-            self._unfreeze_physics()
+            weights.update({'w_data': 1.0, 'w_sup': 0.0, 'w_smooth': 0.1, 'w_coeff': 0.01, 'w_img_reg': 0.0})
         elif stage == 'restoration_fixed_physics':
-            self._unfreeze_restoration()
-            self._freeze_physics()
+            weights.update({'w_data': 0.1, 'w_sup': 1.0, 'w_smooth': 0.0, 'w_coeff': 0.0, 'w_img_reg': 0.001})
         elif stage == 'joint':
-            self._unfreeze_restoration()
-            self._unfreeze_physics()
+            weights.update({'w_data': 0.5, 'w_sup': 1.0, 'w_smooth': 0.05, 'w_coeff': 0.01, 'w_img_reg': 0.0001})
+
+        return weights
+
+    def _set_trainable(self, stage: str):
+        """根据阶段快速冻结/解冻网络，并切换 train/eval 模式"""
+        if stage == 'physics_only':
+            for p in self.restoration_net.parameters():
+                p.requires_grad = False
+            for p in self.aberration_net.parameters():
+                p.requires_grad = True
+            self.restoration_net.eval()
+            self.physical_layer.train()
+        elif stage == 'restoration_fixed_physics':
+            for p in self.restoration_net.parameters():
+                p.requires_grad = True
+            for p in self.aberration_net.parameters():
+                p.requires_grad = False
+            self.restoration_net.train()
+            self.physical_layer.eval()
+        elif stage == 'joint':
+            for p in self.restoration_net.parameters():
+                p.requires_grad = True
+            for p in self.aberration_net.parameters():
+                p.requires_grad = True
+            self.restoration_net.train()
+            self.physical_layer.train()
+        else:
+            raise ValueError(f"Invalid stage '{stage}'. Must be one of {self.VALID_STAGES}")
+
+    def set_stage(self, stage: str):
+        """兼容旧流程的手动设置（仍可用）"""
+        if stage not in self.VALID_STAGES:
+            raise ValueError(f"Invalid stage '{stage}'. Must be one of {self.VALID_STAGES}")
+        self._current_stage = stage
+        self._set_trainable(stage)
+
+    def get_stage(self, epoch: int) -> str:
+        return self._get_stage(epoch)
+
+    def get_stage_weights(self, epoch: int):
+        return self._get_stage_weights(self._get_stage(epoch))
 
     # =========================================================================
     #                              核心训练步骤
     # =========================================================================
-    def train_step(self, Y, X_gt=None, crop_info=None, batch_idx=0, stage=None):
+    def train_step(self, Y_blur, X_gt, epoch, crop_info=None):
         """
-        执行一个训练步骤，支持三阶段解耦训练、梯度累积和全局坐标对齐。
+        执行一个训练步骤，内部根据 epoch 自动切换阶段并分配动态 Loss 权重。
         """
-        current_stage = stage if stage is not None else self._current_stage
-        if current_stage not in self.VALID_STAGES:
-            raise ValueError(f"Invalid stage '{current_stage}'")
+        current_stage = self._get_stage(epoch)
+        self._current_stage = current_stage
+        self._set_trainable(current_stage)
 
-        Y = Y.to(self.device)
-        if X_gt is not None:
-            X_gt = X_gt.to(self.device)
+        weights = self._get_stage_weights(current_stage)
+        w_data = weights['w_data']
+        w_sup = weights['w_sup']
+        w_smooth = weights['w_smooth']
+        w_coeff = weights['w_coeff']
+        w_img_reg = weights['w_img_reg']
+
+        Y_blur = Y_blur.to(self.device)
+        X_gt = X_gt.to(self.device)
         if crop_info is not None:
             crop_info = crop_info.to(self.device)
-
-        if current_stage in ('physics_only', 'restoration_fixed_physics') and X_gt is None:
-            raise ValueError(f"Stage '{current_stage}' requires X_gt (ground truth sharp image)")
 
         # 梯度累积：仅在第一个累积步骤清除梯度
         if self.accumulation_counter == 0:
@@ -171,52 +229,62 @@ class DualBranchTrainer:
                 self.optimizer_W.zero_grad()
                 self.optimizer_Theta.zero_grad()
 
-        # ========================== Stage Logic ==============================
-        if current_stage == 'physics_only':
-            Y_hat = self.physical_layer(X_gt, crop_info=crop_info)
-            X_hat = X_gt
-            loss_data = self.criterion_mse(Y_hat, Y)
-            loss_sup = torch.tensor(0.0, device=self.device)
-        elif current_stage == 'restoration_fixed_physics':
-            X_hat = self.restoration_net(Y)
-            Y_hat = self.physical_layer(X_hat, crop_info=crop_info)
-            loss_data = self.criterion_mse(Y_hat, Y)
-            loss_sup = self.criterion_l1(X_hat, X_gt)
-        else:
-            X_hat = self.restoration_net(Y)
-            Y_hat = self.physical_layer(X_hat, crop_info=crop_info)
-            loss_data = self.criterion_mse(Y_hat, Y)
-            loss_sup = torch.tensor(0.0, device=self.device)
-            if X_gt is not None:
-                loss_sup = self.criterion_mse(X_hat, X_gt)
-
-        # ========================== Regularization ===========================
+        # ========================== Forward & Loss ===========================
+        loss_data = torch.tensor(0.0, device=self.device)
+        loss_sup = torch.tensor(0.0, device=self.device)
         loss_coeff = torch.tensor(0.0, device=self.device)
         loss_smooth = torch.tensor(0.0, device=self.device)
-
-        if current_stage in ('physics_only', 'joint'):
-            coords = self.physical_layer.get_patch_centers(Y.shape[2], Y.shape[3], self.device)
-            if coords.shape[0] > 64:
-                indices = torch.randperm(coords.shape[0])[:64]
-                coords_sample = coords[indices]
-            else:
-                coords_sample = coords
-
-            coeffs = self.aberration_net(coords_sample)
-            loss_coeff = torch.mean(coeffs**2)
-
-            if self.lambda_smooth > 0:
-                loss_smooth = self.compute_smoothness_loss()
-
         loss_image_reg = torch.tensor(0.0, device=self.device)
-        if current_stage in ('restoration_fixed_physics', 'joint') and self.lambda_image_reg > 0:
-            loss_image_reg = self.compute_image_tv_loss(X_hat)
 
-        total_loss = loss_data + \
-                     self.lambda_sup * loss_sup + \
-                     self.lambda_coeff * loss_coeff + \
-                     self.lambda_smooth * loss_smooth + \
-                     self.lambda_image_reg * loss_image_reg
+        # Stage 1: 仅物理层
+        if current_stage == 'physics_only':
+            Y_reblur = self.physical_layer(X_gt, crop_info=crop_info)
+            loss_data = self.criterion_mse(Y_reblur, Y_blur)
+
+            if w_coeff > 0 or w_smooth > 0:
+                coords = self.physical_layer.get_patch_centers(
+                    Y_blur.shape[2], Y_blur.shape[3], self.device
+                )
+                if coords.shape[0] > 64:
+                    indices = torch.randperm(coords.shape[0])[:64]
+                    coords = coords[indices]
+                coeffs = self.aberration_net(coords)
+                if w_coeff > 0:
+                    loss_coeff = torch.mean(coeffs**2)
+                if w_smooth > 0:
+                    loss_smooth = self.compute_smoothness_loss(self.smoothness_grid_size)
+
+        # Stage 2/3: 复原网络参与
+        else:
+            X_hat = self.restoration_net(Y_blur)
+            Y_reblur = self.physical_layer(X_hat, crop_info=crop_info)
+            loss_data = self.criterion_mse(Y_reblur, Y_blur)
+            loss_sup = self.criterion_l1(X_hat, X_gt)
+
+            if w_img_reg > 0:
+                loss_image_reg = self.compute_image_tv_loss(X_hat)
+
+            if current_stage == 'joint' and (w_coeff > 0 or w_smooth > 0):
+                coords = self.physical_layer.get_patch_centers(
+                    Y_blur.shape[2], Y_blur.shape[3], self.device
+                )
+                if coords.shape[0] > 64:
+                    indices = torch.randperm(coords.shape[0])[:64]
+                    coords = coords[indices]
+                coeffs = self.aberration_net(coords)
+                if w_coeff > 0:
+                    loss_coeff = torch.mean(coeffs**2)
+                if w_smooth > 0:
+                    loss_smooth = self.compute_smoothness_loss(self.smoothness_grid_size)
+
+        # ========================== Weighted Loss ============================
+        loss_data_w = w_data * loss_data
+        loss_sup_w = w_sup * loss_sup
+        loss_coeff_w = w_coeff * loss_coeff
+        loss_smooth_w = w_smooth * loss_smooth
+        loss_image_reg_w = w_img_reg * loss_image_reg
+
+        total_loss = loss_data_w + loss_sup_w + loss_coeff_w + loss_smooth_w + loss_image_reg_w
 
         scaled_loss = total_loss / self.accumulation_steps
         scaled_loss.backward()
@@ -244,17 +312,22 @@ class DualBranchTrainer:
             self.accumulation_counter = 0
 
             self.history['loss_total'].append(total_loss.item())
-            self.history['loss_data'].append(loss_data.item())
+            self.history['loss_data'].append(loss_data_w.item())
             self.history['grad_norm_W'].append(gn_W.item() if isinstance(gn_W, torch.Tensor) else gn_W)
             self.history['grad_norm_Theta'].append(gn_Theta.item() if isinstance(gn_Theta, torch.Tensor) else gn_Theta)
 
         return {
             'loss': total_loss.item(),
-            'loss_data': loss_data.item(),
-            'loss_sup': loss_sup.item(),
-            'loss_coeff': loss_coeff.item(),
-            'loss_smooth': loss_smooth.item(),
-            'loss_image_reg': loss_image_reg.item(),
+            'loss_data': loss_data_w.item(),
+            'loss_sup': loss_sup_w.item(),
+            'loss_coeff': loss_coeff_w.item(),
+            'loss_smooth': loss_smooth_w.item(),
+            'loss_image_reg': loss_image_reg_w.item(),
+            'loss_data_raw': loss_data.item(),
+            'loss_sup_raw': loss_sup.item(),
+            'loss_coeff_raw': loss_coeff.item(),
+            'loss_smooth_raw': loss_smooth.item(),
+            'loss_image_reg_raw': loss_image_reg.item(),
             'grad_W': gn_W.item() if isinstance(gn_W, torch.Tensor) else gn_W,
             'grad_Theta': gn_Theta.item() if isinstance(gn_Theta, torch.Tensor) else gn_Theta,
             'stage': current_stage
