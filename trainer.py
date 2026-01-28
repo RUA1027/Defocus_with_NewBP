@@ -3,238 +3,261 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 import time
-'''
-┌─────────────────────────────────────────────────────────────────┐
-│                      一个训练步骤 (train_step)                    │
-└─────────────────────────────────────────────────────────────────┘
 
-输入:
-  Y ────────────────────────────┐  [模糊图像，B×C×H×W]
-  X_gt (可选) ────────────────┐ │  [清晰参考图像]
-                              │ │
-                    ┌─────────▼─▼──────────────────┐
-                    │   Restoration Branch        │
-                    │   (恢复/去模糊)              │
-                    │   X_hat = restoration_net(Y)│
-                    │                              │
-                    │   输出: X_hat [B×C×H×W]      │
-                    │   (还原后的清晰图像)         │
-                    └──────────┬───────────────────┘
-                               │
-                    ┌──────────▼──────────────────┐
-                    │   Physical Simulation      │
-                    │   (重新模糊)                │
-                    │  Y_hat = physical_layer    │
-                    │          (X_hat)            │
-                    │                              │
-                    │  ├─ 计算像差 coeffs        │
-                    │  ├─ 生成 PSF               │
-                    │  └─ 卷积模糊 X_hat        │
-                    │                              │
-                    │   输出: Y_hat [B×C×H×W]   │
-                    │   (重新模糊的图像)         │
-                    └──────────┬───────────────────┘
-                               │
-                    ┌──────────▼──────────────────────┐
-                    │      损失函数计算                │
-                    │                                  │
-                    │  1. loss_data 自一致性         │
-                    │     = MSE(Y_hat, Y)             │
-                    │     Y 和 Y_hat 应该相近         │
-                    │                                  │
-                    │  2. loss_sup 监督损失 (可选)   │
-                    │     = MSE(X_hat, X_gt)          │
-                    │     如果有清晰参考图像          │
-                    │                                  │
-                    │  3. loss_coeff 系数正则化      │
-                    │     = ||coeffs||²               │
-                    │     鼓励像差较小                │
-                    │                                  │
-                    │  4. loss_smooth 平滑约束      │
-                    │     = TV(coeffs_map)            │
-                    │     鼓励像差在空间上平滑        │
-                    │                                  │
-                    │  总损失:                        │
-                    │  L = loss_data +                │
-                    │      λ_sup × loss_sup +        │
-                    │      λ_coeff × loss_coeff +    │
-                    │      λ_smooth × loss_smooth    │
-                    └──────────┬───────────────────────┘
-                               │
-                    ┌──────────▼───────────────────────┐
-                    │    反向传播与优化                │
-                    │                                   │
-                    │  梯度流:                         │
-                    │  L → dL/dW (restoration_net)   │
-                    │    → dL/dθ (aberration_net)     │
-                    │                                   │
-                    │  独立更新两个优化器:            │
-                    │  ├─ optimizer_W                 │
-                    │  │  (更新 restoration_net)      │
-                    │  └─ optimizer_Theta             │
-                    │     (更新 aberration_net)       │
-                    │                                   │
-                    │  梯度裁剪:                       │
-                    │  ├─ restoration_net: max=5.0    │
-                    │  └─ aberration_net: max=1.0     │
-                    └──────────┬───────────────────────┘
-                               │
-输出:
-  ├─ 更新后的 restoration_net 权重
-  ├─ 更新后的 aberration_net 权重
-  └─ 返回指标字典
+'''
+================================================================================
+                    三阶段解耦训练策略 (Three-Stage Decoupled Training)
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Stage 1: Physics Only (物理层单独训练)                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  目的: 利用成对数据，单独训练 AberrationNet 准确拟合数据集的光学像差特性     │
+│                                                                              │
+│  数据流:                                                                     │
+│    X_gt (清晰图像) ──▶ PhysicalLayer ──▶ Y_hat (重模糊)                     │
+│                                                                              │
+│  Loss = MSE(Y_hat, Y) + λ_coeff × ||coeffs||² + λ_smooth × TV(coeffs)       │
+│                                                                              │
+│  冻结: RestorationNet (❄️)     更新: AberrationNet (🔥)                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Stage 2: Restoration with Fixed Physics (固定物理层训练复原网络)           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  目的: 在已知且准确的物理模型指导下，训练复原网络                            │
+│                                                                              │
+│  数据流:                                                                     │
+│    Y (模糊图像) ──▶ RestorationNet ──▶ X_hat ──▶ PhysicalLayer ──▶ Y_hat   │
+│                                                                              │
+│  Loss = λ_sup × L1(X_hat, X_gt) + MSE(Y_hat, Y) + λ_image_reg × TV(X_hat)  │
+│                                                                              │
+│  冻结: AberrationNet (❄️)      更新: RestorationNet (🔥)                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Stage 3: Joint Fine-tuning (联合微调)                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  目的: 联合微调，消除模块间的耦合误差                                        │
+│                                                                              │
+│  数据流:                                                                     │
+│    Y ──▶ RestorationNet ──▶ X_hat ──▶ PhysicalLayer ──▶ Y_hat              │
+│                                                                              │
+│  Loss = 综合损失（所有项）                                                   │
+│                                                                              │
+│  更新: RestorationNet (🔥) + AberrationNet (🔥)                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 '''
 class DualBranchTrainer:
-    def __init__(self, 
-                 restoration_net, 
+    """
+    三阶段解耦训练器 (Three-Stage Decoupled Trainer)
+
+    支持三种训练模式:
+    - 'physics_only': 仅训练物理层 (Stage 1)
+    - 'restoration_fixed_physics': 固定物理层训练复原网络 (Stage 2)
+    - 'joint': 联合训练所有模块 (Stage 3)
+    """
+
+    VALID_STAGES = ('physics_only', 'restoration_fixed_physics', 'joint')
+
+    def __init__(self,
+                 restoration_net,
                  physical_layer,
                  lr_restoration,
                  lr_optics,
-                 lambda_sup=1.0, # 当你有清晰的图像作为参考（Ground Truth）时，这部分决定了模型对“清晰图”的还原程度有多在乎。
-                 lambda_coeff=0.01, # 防止网络预测出物理上不可能实现的巨大像差。它强制系数趋向于 0，符合“实际光学系统通常接近理想状态”的物理先验。
-                 lambda_smooth=0.01, # 约束相邻区域的像差不要突变。因为镜头物理属性是连续的，光学像差在空间分布上应该是平滑变化的（如边缘劣化是渐进的），这能有效抑制噪声。
-                 lambda_image_reg=0.0, # 保护复原后的图像不产生过多的伪影或高频噪声。在完全没有清晰图参考的自监督训练中，这个参数至关重要（防止模型通过制造噪声来强行拟合模糊图）。
+                 lambda_sup=1.0,
+                 lambda_coeff=0.01,
+                 lambda_smooth=0.01,
+                 lambda_image_reg=0.0,
                  device='cuda',
                  accumulation_steps=1):
-        
+
         self.device = device
         self.restoration_net = restoration_net.to(device)
         self.physical_layer = physical_layer.to(device)
-        
+
         # Access internals for regularization
         self.aberration_net = physical_layer.aberration_net
-        
+
+        # 独立优化器
         self.optimizer_W = optim.AdamW(self.restoration_net.parameters(), lr=lr_restoration)
         self.optimizer_Theta = optim.AdamW(self.aberration_net.parameters(), lr=lr_optics)
-        
+
+        # 损失权重
         self.lambda_sup = lambda_sup
         self.lambda_coeff = lambda_coeff
         self.lambda_smooth = lambda_smooth
         self.lambda_image_reg = lambda_image_reg
-        
-        # Gradient Accumulation Settings
-        # accumulation_steps = 1: 标准训练（每步更新）
-        # accumulation_steps = 4: 梯度累积 4 步后再更新（模拟 4 倍 Batch Size）
+
+        # 梯度累积
         self.accumulation_steps = max(1, accumulation_steps)
         self.accumulation_counter = 0
-        
-        self.criterion_mse = nn.MSELoss()
-        
-        # History - 记录还原后的真实 Loss（乘以 accumulation_steps 后，便于观察）
-        self.history = {'loss_total': [], 'loss_data': [], 'loss_sup': [], 'grad_norm_W': [], 'grad_norm_Theta': []}
 
-    def train_step(self, Y, X_gt=None, crop_info=None, batch_idx=0):
+        # 损失函数
+        self.criterion_mse = nn.MSELoss()
+        self.criterion_l1 = nn.L1Loss()
+
+        # 当前训练阶段
+        self._current_stage = 'joint'
+
+        # History
+        self.history = {
+            'loss_total': [], 'loss_data': [], 'loss_sup': [],
+            'grad_norm_W': [], 'grad_norm_Theta': []
+        }
+
+    # =========================================================================
+    #                          冻结/解冻工具函数
+    # =========================================================================
+    def _set_trainable(self, module: nn.Module, trainable: bool):
+        for param in module.parameters():
+            param.requires_grad = trainable
+
+    def _freeze_restoration(self):
+        self._set_trainable(self.restoration_net, False)
+
+    def _unfreeze_restoration(self):
+        self._set_trainable(self.restoration_net, True)
+
+    def _freeze_physics(self):
+        self._set_trainable(self.aberration_net, False)
+
+    def _unfreeze_physics(self):
+        self._set_trainable(self.aberration_net, True)
+
+    def set_stage(self, stage: str):
+        if stage not in self.VALID_STAGES:
+            raise ValueError(f"Invalid stage '{stage}'. Must be one of {self.VALID_STAGES}")
+
+        self._current_stage = stage
+
+        if stage == 'physics_only':
+            self._freeze_restoration()
+            self._unfreeze_physics()
+        elif stage == 'restoration_fixed_physics':
+            self._unfreeze_restoration()
+            self._freeze_physics()
+        elif stage == 'joint':
+            self._unfreeze_restoration()
+            self._unfreeze_physics()
+
+    # =========================================================================
+    #                              核心训练步骤
+    # =========================================================================
+    def train_step(self, Y, X_gt=None, crop_info=None, batch_idx=0, stage=None):
         """
-        执行一个训练步骤，支持梯度累积和全局坐标对齐。
-        
-        Args:
-            Y: 模糊输入 [B, C, H, W]
-            X_gt: 清晰参考图像 [B, C, H, W]（可选）
-            crop_info: 裁剪信息张量，用于全局坐标对齐。
-                      形状：[4,] 或 [B, 4]，表示 [top_norm, left_norm, crop_h_norm, crop_w_norm]
-            batch_idx: 当前批在 epoch 中的索引，用于梯度累积判断
-        
-        Returns:
-            dict: 包含损失和梯度范数的字典
+        执行一个训练步骤，支持三阶段解耦训练、梯度累积和全局坐标对齐。
         """
+        current_stage = stage if stage is not None else self._current_stage
+        if current_stage not in self.VALID_STAGES:
+            raise ValueError(f"Invalid stage '{current_stage}'")
+
         Y = Y.to(self.device)
         if X_gt is not None:
             X_gt = X_gt.to(self.device)
         if crop_info is not None:
             crop_info = crop_info.to(self.device)
-        
+
+        if current_stage in ('physics_only', 'restoration_fixed_physics') and X_gt is None:
+            raise ValueError(f"Stage '{current_stage}' requires X_gt (ground truth sharp image)")
+
         # 梯度累积：仅在第一个累积步骤清除梯度
         if self.accumulation_counter == 0:
-            self.optimizer_W.zero_grad()
-            self.optimizer_Theta.zero_grad()
-        
-        # 1. Restoration Branch
-        X_hat = self.restoration_net(Y)
-        
-        # 2. Physical Simulation Branch (Reblurring) - 传递 crop_info 用于全局坐标对齐
-        Y_hat = self.physical_layer(X_hat, crop_info=crop_info)
-        
-        # 3. 损失计算
-        # 自一致性损失（数据项）
-        loss_data = self.criterion_mse(Y_hat, Y)
-        
-        # 监督损失（如果有清晰参考图像）
-        loss_sup = torch.tensor(0.0, device=self.device)
-        if X_gt is not None:
-            loss_sup = self.criterion_mse(X_hat, X_gt)
-            
-        # 光学正则化
-        # 在网格上评估 AberrationNet 以计算正则化项
-        reg_grid_size = 8
-        coords = self.physical_layer.get_patch_centers(Y.shape[2], Y.shape[3], self.device)
-        # 下采样或取子集
-        if coords.shape[0] > 64:
-            indices = torch.randperm(coords.shape[0])[:64]
-            coords_sample = coords[indices]
+            if current_stage == 'physics_only':
+                self.optimizer_Theta.zero_grad()
+            elif current_stage == 'restoration_fixed_physics':
+                self.optimizer_W.zero_grad()
+            else:
+                self.optimizer_W.zero_grad()
+                self.optimizer_Theta.zero_grad()
+
+        # ========================== Stage Logic ==============================
+        if current_stage == 'physics_only':
+            Y_hat = self.physical_layer(X_gt, crop_info=crop_info)
+            X_hat = X_gt
+            loss_data = self.criterion_mse(Y_hat, Y)
+            loss_sup = torch.tensor(0.0, device=self.device)
+        elif current_stage == 'restoration_fixed_physics':
+            X_hat = self.restoration_net(Y)
+            Y_hat = self.physical_layer(X_hat, crop_info=crop_info)
+            loss_data = self.criterion_mse(Y_hat, Y)
+            loss_sup = self.criterion_l1(X_hat, X_gt)
         else:
-            coords_sample = coords
-            
-        coeffs = self.aberration_net(coords_sample)  # [N, C]
-        
-        # L2 正则化：鼓励像差较小
-        loss_coeff = torch.mean(coeffs**2)
-        
-        # 空间平滑性约束
+            X_hat = self.restoration_net(Y)
+            Y_hat = self.physical_layer(X_hat, crop_info=crop_info)
+            loss_data = self.criterion_mse(Y_hat, Y)
+            loss_sup = torch.tensor(0.0, device=self.device)
+            if X_gt is not None:
+                loss_sup = self.criterion_mse(X_hat, X_gt)
+
+        # ========================== Regularization ===========================
+        loss_coeff = torch.tensor(0.0, device=self.device)
         loss_smooth = torch.tensor(0.0, device=self.device)
-        if self.lambda_smooth > 0:
-            loss_smooth = self.compute_smoothness_loss()
-        
-        # 图像总变分正则化（对复原后的图像）
+
+        if current_stage in ('physics_only', 'joint'):
+            coords = self.physical_layer.get_patch_centers(Y.shape[2], Y.shape[3], self.device)
+            if coords.shape[0] > 64:
+                indices = torch.randperm(coords.shape[0])[:64]
+                coords_sample = coords[indices]
+            else:
+                coords_sample = coords
+
+            coeffs = self.aberration_net(coords_sample)
+            loss_coeff = torch.mean(coeffs**2)
+
+            if self.lambda_smooth > 0:
+                loss_smooth = self.compute_smoothness_loss()
+
         loss_image_reg = torch.tensor(0.0, device=self.device)
-        if self.lambda_image_reg > 0:
+        if current_stage in ('restoration_fixed_physics', 'joint') and self.lambda_image_reg > 0:
             loss_image_reg = self.compute_image_tv_loss(X_hat)
-        
-        # 总损失
+
         total_loss = loss_data + \
                      self.lambda_sup * loss_sup + \
                      self.lambda_coeff * loss_coeff + \
                      self.lambda_smooth * loss_smooth + \
                      self.lambda_image_reg * loss_image_reg
-        
-        # 梯度累积：除以累积步数以模拟更大的 Batch Size
+
         scaled_loss = total_loss / self.accumulation_steps
         scaled_loss.backward()
-        
-        # 更新累积计数器
+
+        # ========================== Optimizer Step ============================
         self.accumulation_counter += 1
         should_step = (self.accumulation_counter >= self.accumulation_steps)
-        
-        # 梯度裁剪和优化器更新
+
         gn_W = torch.tensor(0.0, device=self.device)
         gn_Theta = torch.tensor(0.0, device=self.device)
-        
+
         if should_step:
-            # 梯度裁剪（可选但对稳定性有帮助）
-            gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), 5.0)
-            gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), 1.0)
-            
-            # 优化器步骤
-            self.optimizer_W.step()
-            self.optimizer_Theta.step()
-            
-            # 重置累积计数器
+            if current_stage == 'physics_only':
+                gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), 1.0)
+                self.optimizer_Theta.step()
+            elif current_stage == 'restoration_fixed_physics':
+                gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), 5.0)
+                self.optimizer_W.step()
+            else:
+                gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), 5.0)
+                gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), 1.0)
+                self.optimizer_W.step()
+                self.optimizer_Theta.step()
+
             self.accumulation_counter = 0
-        
-        # 日志记录：记录还原后的真实损失（乘以 accumulation_steps）
-        # 这样可以在日志中看到每个有效更新步骤的真实损失值
-        if should_step:
+
             self.history['loss_total'].append(total_loss.item())
             self.history['loss_data'].append(loss_data.item())
-            self.history['grad_norm_W'].append(gn_W.item())
-            self.history['grad_norm_Theta'].append(gn_Theta.item())
-        
+            self.history['grad_norm_W'].append(gn_W.item() if isinstance(gn_W, torch.Tensor) else gn_W)
+            self.history['grad_norm_Theta'].append(gn_Theta.item() if isinstance(gn_Theta, torch.Tensor) else gn_Theta)
+
         return {
             'loss': total_loss.item(),
             'loss_data': loss_data.item(),
-            'loss_smooth': loss_smooth.item(), # Added logging
+            'loss_sup': loss_sup.item(),
+            'loss_coeff': loss_coeff.item(),
+            'loss_smooth': loss_smooth.item(),
             'loss_image_reg': loss_image_reg.item(),
-            'grad_W': gn_W.item(),
-            'grad_Theta': gn_Theta.item()
+            'grad_W': gn_W.item() if isinstance(gn_W, torch.Tensor) else gn_W,
+            'grad_Theta': gn_Theta.item() if isinstance(gn_Theta, torch.Tensor) else gn_Theta,
+            'stage': current_stage
         }
 
     def compute_smoothness_loss(self, grid_size=16):

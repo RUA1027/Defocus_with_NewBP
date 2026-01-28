@@ -100,6 +100,12 @@ training:
                                  # 设置更小的阈值（1.0）是为了强制让物理参数的更新更加“温和”和“稳健”
   # 梯度累积
   accumulation_steps: 4          # 梯度累积步数，模拟更大的 Batch Size
+
+  # 三阶段训练计划 (Stage 1/2/3)
+  stage_schedule:
+    stage1_epochs: 80             # Stage 1: Physics Only
+    stage2_epochs: 80             # Stage 2: Restoration with Fixed Physics
+    stage3_epochs: 40             # Stage 3: Joint Fine-tuning
   
   # 正则化采样
   smoothness_grid_size: 16       # TV 损失计算的网格大小
@@ -119,7 +125,6 @@ data:
   # 数据增强
   augmentation:
     random_flip: true            # 开启随机水平/垂直翻转
-    # random_crop: true          # (已废弃/注释，使用全分辨率训练)
 
 # -----------------------------------------------------------------------------
 # 可视化配置 (Visualization)
@@ -145,7 +150,7 @@ experiment:
   name: "default"                # 实验名称
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备: "cuda" 或 "cpu"
-  epochs: 100                    # 训练轮数
+  epochs: 200                    # 训练轮数
   save_interval: 5              # 保存间隔 (epochs)
   log_interval: 5                # 日志间隔 (epochs)
   output_dir: "results"          # 输出目录

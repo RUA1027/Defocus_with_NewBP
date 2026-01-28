@@ -130,12 +130,22 @@ class GradientClipConfig:
 
 
 @dataclass
+class StageScheduleConfig:
+    """三阶段训练阶段配置"""
+    stage1_epochs: int = 80
+    stage2_epochs: int = 80
+    stage3_epochs: int = 40
+
+
+@dataclass
 class TrainingConfig:
     """训练配置"""
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     gradient_clip: GradientClipConfig = field(default_factory=GradientClipConfig)
     smoothness_grid_size: int = 16
+    accumulation_steps: int = 1
+    stage_schedule: StageScheduleConfig = field(default_factory=StageScheduleConfig)
 
 
 @dataclass
@@ -370,11 +380,14 @@ def _build_config_from_dict(data: Dict[str, Any]) -> Config:
     optimizer = _dict_to_dataclass(OptimizerConfig, tr_data.get('optimizer', {}))
     loss = _dict_to_dataclass(LossConfig, tr_data.get('loss', {}))
     gradient_clip = _dict_to_dataclass(GradientClipConfig, tr_data.get('gradient_clip', {}))
+    stage_schedule = _dict_to_dataclass(StageScheduleConfig, tr_data.get('stage_schedule', {}))
     training = TrainingConfig(
         optimizer=optimizer,
         loss=loss,
         gradient_clip=gradient_clip,
-        smoothness_grid_size=tr_data.get('smoothness_grid_size', 16)
+        smoothness_grid_size=tr_data.get('smoothness_grid_size', 16),
+        accumulation_steps=tr_data.get('accumulation_steps', 1),
+        stage_schedule=stage_schedule
     )
     
     # 处理 data 的嵌套
