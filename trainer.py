@@ -71,6 +71,7 @@ class DualBranchTrainer:
                  lambda_smooth=0.1,
                  lambda_image_reg=0.0,
                  stage_schedule=None,
+                 stage_weights=None,
                  smoothness_grid_size=16,
                  device='cuda',
                  accumulation_steps=4):
@@ -92,6 +93,8 @@ class DualBranchTrainer:
         self.lambda_smooth = lambda_smooth
         self.lambda_image_reg = lambda_image_reg
 
+        self.stage_weights = stage_weights if stage_weights is not None else {}
+        
         # 三阶段调度 (可为 dict 或 dataclass)
         default_schedule = {
             'stage1_epochs': 80,
@@ -140,6 +143,7 @@ class DualBranchTrainer:
 
     def _get_stage_weights(self, stage: str):
         """根据阶段返回动态 Loss 权重"""
+        # 默认权重
         weights = {
             'w_data': 1.0,
             'w_sup': 0.0,
@@ -148,12 +152,38 @@ class DualBranchTrainer:
             'w_img_reg': 0.0
         }
 
+        # 优先从 stage_weights 配置中读取
+        # stage_weights 应该是一个字典，包含 'physics_only', 'joint' 等键
+        if stage in self.stage_weights:
+            custom_weights = self.stage_weights[stage]
+            weights.update(custom_weights)
+            return weights
+
+        # Fallback 到旧逻辑 (如果配置中为空)
         if stage == 'physics_only':
-            weights.update({'w_data': 1.0, 'w_sup': 0.0, 'w_smooth': 0.1, 'w_coeff': 0.01, 'w_img_reg': 0.0})
+            weights.update({
+                'w_data': 1.0, 
+                'w_sup': 0.0, 
+                'w_smooth': self.lambda_smooth, 
+                'w_coeff': self.lambda_coeff, 
+                'w_img_reg': 0.0
+            })
         elif stage == 'restoration_fixed_physics':
-            weights.update({'w_data': 0.1, 'w_sup': 1.0, 'w_smooth': 0.0, 'w_coeff': 0.0, 'w_img_reg': 0.001})
+            weights.update({
+                'w_data': 0.1, 
+                'w_sup': 1.0, 
+                'w_smooth': 0.0, 
+                'w_coeff': 0.0, 
+                'w_img_reg': self.lambda_image_reg
+            })
         elif stage == 'joint':
-            weights.update({'w_data': 0.5, 'w_sup': 1.0, 'w_smooth': 0.05, 'w_coeff': 0.01, 'w_img_reg': 0.0001})
+            weights.update({
+                'w_data': 0.5, 
+                'w_sup': 1.0, 
+                'w_smooth': self.lambda_smooth * 0.5, 
+                'w_coeff': self.lambda_coeff * 0.2, 
+                'w_img_reg': self.lambda_image_reg * 0.1
+            })
 
         return weights
 

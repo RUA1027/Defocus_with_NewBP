@@ -10,6 +10,7 @@ import random
 class DPDDDataset(Dataset):
     """
     DPDD (Dual-Pixel Defocus Deblurring) Dataset with synchronized random cropping.
+    
     Expects the following directory structure:
     root_dir/
         train/ (or val/ or test/)
@@ -19,14 +20,20 @@ class DPDDDataset(Dataset):
             sharp/
                 img1.png
                 ...
+    
+    DPDD Canon Set 数据量:
+    - train: 350 对图像
+    - val:   74 对图像
+    - test:  76 对图像
     """
 
-    def __init__(self, root_dir, mode='train', crop_size=1024, transform=None):
+    def __init__(self, root_dir, mode='train', crop_size=512, transform=None):
         """
         Args:
             root_dir (str): Root directory of the dataset (e.g., ./data/dpdd_1024).
             mode (str): One of 'train', 'val', 'test'.
-            crop_size (int): Size of the random crop (default: 1024).
+            crop_size (int): Size of the random crop (default: 512).
+                            For val/test, center crop is used instead.
             transform (callable, optional): Optional transform to be applied on a sample.
         """
         super().__init__()

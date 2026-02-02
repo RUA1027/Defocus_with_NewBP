@@ -143,6 +143,7 @@ class TrainingConfig:
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     gradient_clip: GradientClipConfig = field(default_factory=GradientClipConfig)
+    stage_weights: Dict[str, Dict[str, float]] = field(default_factory=dict)
     smoothness_grid_size: int = 16
     accumulation_steps: int = 1
     stage_schedule: StageScheduleConfig = field(default_factory=StageScheduleConfig)
@@ -159,8 +160,9 @@ class DataConfig:
     """数据配置"""
     data_root: str = "data/dpdd_1024"  # Default path
     batch_size: int = 2
-    image_height: int = 256
-    image_width: int = 256
+    image_height: int = 1024
+    image_width: int = 1024
+    crop_size: int = 512              # 训练时随机裁剪尺寸
     num_workers: int = 4
     augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
 
@@ -385,6 +387,7 @@ def _build_config_from_dict(data: Dict[str, Any]) -> Config:
         optimizer=optimizer,
         loss=loss,
         gradient_clip=gradient_clip,
+        stage_weights=tr_data.get('stage_weights', {}),
         smoothness_grid_size=tr_data.get('smoothness_grid_size', 16),
         accumulation_steps=tr_data.get('accumulation_steps', 1),
         stage_schedule=stage_schedule

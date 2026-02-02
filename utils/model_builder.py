@@ -103,6 +103,7 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         lambda_smooth=config.training.loss.lambda_smooth,
         lambda_image_reg=config.training.loss.lambda_image_reg,
         stage_schedule=config.training.stage_schedule,
+        stage_weights=config.training.stage_weights,
         smoothness_grid_size=config.training.smoothness_grid_size,
         accumulation_steps=accumulation_steps,
         device=device
@@ -120,10 +121,14 @@ def build_dataloader_from_config(config: Config, mode: str = 'train'):
     Returns:
         DataLoader 对象
     """
+    # 训练时使用配置的 crop_size，验证/测试时使用完整图像尺寸
+    crop_size = config.data.crop_size if mode == 'train' else config.data.image_height
+    
     dataset = DPDDDataset(
         root_dir=config.data.data_root, 
         mode=mode, 
-        transform=None # Default ToTensor
+        crop_size=crop_size,
+        transform=None  # Default ToTensor
     )
     
     # 只有训练集需要 shuffle

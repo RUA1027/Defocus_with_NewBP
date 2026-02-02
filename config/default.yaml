@@ -24,7 +24,7 @@ physics:
 # 空间变化卷积层 (OLA - Overlap-Add)
 # -----------------------------------------------------------------------------
 ola:
-  patch_size: 64                # 补丁大小
+  patch_size: 64                 # 补丁大小
   stride: 32                     # 补丁步长 (50% 重叠)
   pad_to_power_2: true           # FFT 是否填充到 2 的幂
   use_newbp: true                # 是否启用 NewBP 算法 (非对角雅可比)
@@ -38,7 +38,7 @@ aberration_net:
   a_max: 1.5                     # 系数约束范围 [-a_max, a_max]
   
   # 网络类型: "polynomial" 或 "mlp"
-  type: "polynomial"
+  type: "mlp"
   
   # PolynomialAberrationNet 专用参数
   polynomial:
@@ -84,8 +84,31 @@ training:
     lr_optics: 1.0e-5            # 像差网络学习率
     weight_decay: 0.01           # 权重衰减
   
+  # 三阶段损失权重配置 (Stage Weights)
+  # 这里定义每个阶段具体的权重组合
+  stage_weights:
+    physics_only:
+      w_data: 1.0
+      w_sup: 0.0
+      w_smooth: 0.1      # lambda_smooth
+      w_coeff: 0.05      # lambda_coeff
+      w_img_reg: 0.0
+    
+    restoration_fixed_physics:
+      w_data: 0.1
+      w_sup: 1.0
+      w_smooth: 0.0
+      w_coeff: 0.0
+      w_img_reg: 0.001   # lambda_image_reg
+      
+    joint:
+      w_data: 0.5
+      w_sup: 1.0
+      w_smooth: 0.05     # 0.1 * 0.5
+      w_coeff: 0.01      # 0.05 * 0.2
+      w_img_reg: 0.0001  # 0.001 * 0.1
+  
   # 损失函数权重 (已废弃: 训练时使用动态权重表)
-  # 仅保留以兼容旧代码路径与外部脚本。
   loss:
     lambda_sup: 1.0              # 旧版固定权重 (动态权重模式下不再使用)
     lambda_coeff: 0.05
@@ -116,11 +139,13 @@ training:
 # -----------------------------------------------------------------------------
 data:
   # 数据集根路径 (请指向预处理后的 dpdd_1024 文件夹)
+  # DPDD Canon Set: train=350对, val=74对, test=76对
   data_root: "./data/dpdd_1024"
 
-  batch_size: 2                  # 批大小
+  batch_size: 4                  # 批大小 (由于 1024x1024 图像较大，建议 2-4)
   image_height: 1024             # 图像高度
   image_width: 1024              # 图像宽度
+  crop_size: 512                 # 训练时随机裁剪尺寸 (节省显存)
   num_workers: 4                 # 数据加载线程数
   
   # 数据增强
@@ -148,10 +173,10 @@ visualization:
 # 实验配置 (Experiment)
 # -----------------------------------------------------------------------------
 experiment:
-  name: "default"                # 实验名称
+  name: "dpdd_physics_driven"    # 实验名称
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备: "cuda" 或 "cpu"
-  epochs: 200                    # 训练轮数
-  save_interval: 5              # 保存间隔 (epochs)
-  log_interval: 5                # 日志间隔 (epochs)
+  epochs: 200                    # 训练轮数 (= stage1 + stage2 + stage3 = 80+80+40)
+  save_interval: 10              # 保存间隔 (epochs)
+  log_interval: 1                # 日志间隔 (epochs)
   output_dir: "results"          # 输出目录
