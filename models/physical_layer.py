@@ -411,44 +411,41 @@ reshape → [B*N_patches, C, P, P]
         # 光学系统的像差通常随视场角变化（如边缘失焦）
         # 中心清晰 → 边缘模糊的真实光学现象
 
-        # 获取补丁中心坐标，支持全局坐标对齐
+        # 获取补丁中心坐标，支持全局坐标对齐（逐样本）
         if crop_info is not None:
-            # 如果提供了 crop_info，使用全局坐标系统
-            # crop_info 的形状取决于批大小：
-            # - 如果是单个样本: [4,] (top_norm, left_norm, crop_h_norm, crop_w_norm)
-            # - 如果是批处理: [B, 4]
-            
-            # 对于批处理情况，提取第一个样本的 crop_info（假设批内所有样本的 crop_info 相同）
-            if crop_info.dim() == 2:
-                crop_info_single = crop_info[0]  # [4,]
-            else:
-                crop_info_single = crop_info  # [4,]
-            
-            # 获取原始图像尺寸（基于 crop_info 推断）
-            # crop_h_norm 和 crop_w_norm 分别表示裁剪图像相对于原图的比例
-            # 当前图像尺寸 H, W 应该等于 crop_h_norm * H_orig 和 crop_w_norm * W_orig
-            # 反解得到 H_orig 和 W_orig
-            crop_h_norm = crop_info_single[2].item()
-            crop_w_norm = crop_info_single[3].item()
-            
-            if crop_h_norm > 0 and crop_w_norm > 0:
-                H_orig = int(H / crop_h_norm)
-                W_orig = int(W / crop_w_norm)
-            else:
-                H_orig = H
-                W_orig = W
-                crop_info_single = None
-            
-            coords_1img = self.get_patch_centers(H_pad, W_pad, x_hat.device, 
-                                                   H_orig=H_orig, W_orig=W_orig, 
-                                                   crop_info=crop_info_single)
+            # crop_info: [B, 4] 或 [4,]
+            if crop_info.dim() == 1:
+                crop_info = crop_info.unsqueeze(0)
+
+            coords_list = []
+            for b in range(B):
+                crop_info_single = crop_info[b]
+
+                # 反解原始图像尺寸（基于 crop_info 推断）
+                crop_h_norm = crop_info_single[2].item()
+                crop_w_norm = crop_info_single[3].item()
+
+                if crop_h_norm > 0 and crop_w_norm > 0:
+                    H_orig = int(H / crop_h_norm)
+                    W_orig = int(W / crop_w_norm)
+                else:
+                    H_orig = H
+                    W_orig = W
+                    crop_info_single = None
+
+                coords_1img = self.get_patch_centers(
+                    H_pad, W_pad, x_hat.device,
+                    H_orig=H_orig, W_orig=W_orig,
+                    crop_info=crop_info_single
+                )
+                coords_list.append(coords_1img)
+
+            # [B * N_patches, 2]
+            coords = torch.cat(coords_list, dim=0)
         else:
             # 向后兼容：没有 crop_info 时使用局部坐标
             coords_1img = self.get_patch_centers(H_pad, W_pad, x_hat.device)
-        
-        # Repeat for Batch
-        # [B * N_patches, 2]
-        coords = coords_1img.repeat(B, 1)
+            coords = coords_1img.repeat(B, 1)
         
         # AberrationNet -> Coeffs
         coeffs = self.aberration_net(coords) # [B*N, Ncoeff]

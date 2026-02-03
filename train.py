@@ -20,7 +20,7 @@ import os
 import torch
 import sys
 import math
-from typing import Sized, cast
+from typing import Sized, cast, Any, Dict
 from tqdm import tqdm
 from datetime import datetime
 
@@ -76,6 +76,8 @@ def main():
     output_dir = os.path.join(config.experiment.output_dir, f"{config.experiment.name}_{timestamp}")
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
+    # 将本次实验输出目录写回配置，确保 TensorBoard 与保存路径一致
+    config.experiment.output_dir = output_dir
 
     # 4. 构建数据
     print("\n" + "="*60)
@@ -92,7 +94,7 @@ def main():
         val_size = len(cast(Sized, val_dataset)) if hasattr(val_dataset, "__len__") else "Unknown"
         
         # 获取真实样本数
-        real_train_size = train_dataset.get_real_length() if hasattr(train_dataset, 'get_real_length') else train_size
+        real_train_size = cast(Any, train_dataset).get_real_length() if hasattr(train_dataset, 'get_real_length') else train_size
         
         print(f"✓ Train set: {real_train_size} real images, virtual length: {train_size}")
         print(f"✓ Val set size: {val_size}")
@@ -142,6 +144,10 @@ def main():
     save_interval = config.experiment.save_interval
     prev_stage = None
     
+    # 初始化变量以防止静态分析错误
+    stage = 'physics_only'
+    val_metrics: Dict[str, Any] = {}
+
     # 创建评估器
     evaluator = PerformanceEvaluator(device=device)
 
@@ -173,8 +179,11 @@ def main():
                 can_switch = trainer.check_circuit_breaker(val_metrics, prev_stage, stage)
                 if not can_switch:
                     print(trainer.circuit_breaker_message)
-                    # 注意：当前实现中熔断只是警告，不会真正阻止切换
-                    # 如果需要严格熔断，可以在这里添加逻辑
+                    # 严格熔断：阻止阶段切换，继续上一阶段训练
+                    trainer.set_forced_stage(prev_stage)
+                    stage = prev_stage
+                else:
+                    trainer.set_forced_stage(None)
             
             prev_stage = stage
         else:
@@ -317,7 +326,11 @@ def main():
     print(f"  Stage 2 (Restoration): PSNR = {trainer.best_metrics['restoration_fixed_physics']['psnr']:.2f}")
     print(f"  Stage 3 (Joint): PSNR = {trainer.best_metrics['joint']['psnr']:.2f}")
     print(f"\nOutput directory: {output_dir}")
-    print(f"Run 'tensorboard --logdir {output_dir}' to view training curves.")
+    if config.experiment.tensorboard.enabled:
+        tb_log_dir = os.path.join(output_dir, config.experiment.tensorboard.log_dir, config.experiment.name)
+        print(f"Run 'tensorboard --logdir {tb_log_dir}' to view training curves.")
+    else:
+        print("TensorBoard is disabled.")
 
 
 if __name__ == "__main__":

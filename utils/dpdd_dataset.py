@@ -18,7 +18,7 @@ DPDD Canon Set 数据量:
 """
 
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
@@ -50,7 +50,8 @@ class DPDDDataset(Dataset):
 
     def __init__(self, root_dir, mode='train', crop_size=512, 
                  repeat_factor=1, transform=None,
-                 val_crop_size=1024, use_full_resolution=False):
+                 val_crop_size=1024, use_full_resolution=False,
+                 random_flip=False):
         """
         Args:
             root_dir (str): Root directory of the dataset (e.g., ./data/dd_dp_dataset_png).
@@ -71,6 +72,7 @@ class DPDDDataset(Dataset):
         self.repeat_factor = repeat_factor if mode == 'train' else 1  # 只对训练集生效
         self.val_crop_size = val_crop_size
         self.use_full_resolution = use_full_resolution
+        self.random_flip = random_flip
 
         # Ensure transform is callable
         if transform is None:
@@ -197,6 +199,15 @@ class DPDDDataset(Dataset):
             dtype=torch.float32
         )
         
+        # Data augmentation (train only)
+        if self.mode == 'train' and self.random_flip:
+            if random.random() < 0.5:
+                blur_img = ImageOps.mirror(blur_img)
+                sharp_img = ImageOps.mirror(sharp_img)
+            if random.random() < 0.5:
+                blur_img = ImageOps.flip(blur_img)
+                sharp_img = ImageOps.flip(sharp_img)
+
         # Apply transforms to convert to tensors
         blur_tensor = self.transform(blur_img)
         sharp_tensor = self.transform(sharp_img)

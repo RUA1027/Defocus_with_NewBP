@@ -7,11 +7,12 @@ from typing import Any, Mapping, Optional, Dict, Union
 
 # TensorBoard 支持
 try:
-    from torch.utils.tensorboard import SummaryWriter
+    from torch.utils.tensorboard import SummaryWriter as _SummaryWriter
+    SummaryWriter = _SummaryWriter
     TENSORBOARD_AVAILABLE = True
 except ImportError:
     TENSORBOARD_AVAILABLE = False
-    SummaryWriter = None  # type: ignore
+    SummaryWriter = None
 
 '''
 ================================================================================
@@ -84,10 +85,14 @@ class DualBranchTrainer:
                  physical_layer,
                  lr_restoration,
                  lr_optics,
+                 optimizer_type="adamw",
+                 weight_decay=0.0,
                  lambda_sup=1.0,
                  lambda_coeff=0.05,
                  lambda_smooth=0.1,
                  lambda_image_reg=0.0,
+                 grad_clip_restoration=5.0,
+                 grad_clip_optics=1.0,
                  stage_schedule=None,
                  stage_weights=None,
                  smoothness_grid_size=16,
@@ -108,8 +113,16 @@ class DualBranchTrainer:
         self.base_lr_optics = lr_optics
         
         # 独立优化器
-        self.optimizer_W = optim.AdamW(self.restoration_net.parameters(), lr=lr_restoration)
-        self.optimizer_Theta = optim.AdamW(self.aberration_net.parameters(), lr=lr_optics)
+        opt_type = str(optimizer_type).lower()
+        if opt_type == "adamw":
+            optimizer_cls = optim.AdamW
+        elif opt_type == "adam":
+            optimizer_cls = optim.Adam
+        else:
+            raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
+
+        self.optimizer_W = optimizer_cls(self.restoration_net.parameters(), lr=lr_restoration, weight_decay=weight_decay)
+        self.optimizer_Theta = optimizer_cls(self.aberration_net.parameters(), lr=lr_optics, weight_decay=weight_decay)
 
         # 兼容旧配置（已弃用的固定权重，仅保留字段）
         self.lambda_sup = lambda_sup
@@ -134,6 +147,10 @@ class DualBranchTrainer:
         self.accumulation_steps = max(1, accumulation_steps)
         self.accumulation_counter = 0
 
+        # 梯度裁剪阈值
+        self.grad_clip_restoration = grad_clip_restoration
+        self.grad_clip_optics = grad_clip_optics
+
         # 损失函数
         self.criterion_mse = nn.MSELoss()
         self.criterion_l1 = nn.L1Loss()
@@ -142,6 +159,7 @@ class DualBranchTrainer:
         self._current_stage = 'joint'
         self._previous_stage = None  # 用于检测阶段切换
         self._stage3_lr_halved = False  # 标记 Stage 3 学习率是否已减半
+        self._forced_stage = None  # 强制阶段 (用于熔断阻断切换)
 
         # 熔断机制配置
         self.circuit_breaker_config = circuit_breaker_config or {
@@ -440,6 +458,19 @@ class DualBranchTrainer:
         self._set_trainable(stage)
 
     def get_stage(self, epoch: int) -> str:
+        return self._resolve_stage(epoch)
+
+    def set_forced_stage(self, stage: Optional[str]):
+        if stage is None:
+            self._forced_stage = None
+            return
+        if stage not in self.VALID_STAGES:
+            raise ValueError(f"Invalid stage '{stage}'. Must be one of {self.VALID_STAGES}")
+        self._forced_stage = stage
+
+    def _resolve_stage(self, epoch: int) -> str:
+        if self._forced_stage is not None:
+            return self._forced_stage
         return self._get_stage(epoch)
 
     def get_stage_weights(self, epoch: int):
@@ -452,7 +483,7 @@ class DualBranchTrainer:
         """
         执行一个训练步骤，内部根据 epoch 自动切换阶段并分配动态 Loss 权重。
         """
-        current_stage = self._get_stage(epoch)
+        current_stage = self._resolve_stage(epoch)
         
         # 检测阶段切换
         if self._previous_stage is not None and self._previous_stage != current_stage:
@@ -557,14 +588,14 @@ class DualBranchTrainer:
 
         if should_step:
             if current_stage == 'physics_only':
-                gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), 1.0)
+                gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), self.grad_clip_optics)
                 self.optimizer_Theta.step()
             elif current_stage == 'restoration_fixed_physics':
-                gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), 5.0)
+                gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), self.grad_clip_restoration)
                 self.optimizer_W.step()
             else:
-                gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), 5.0)
-                gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), 1.0)
+                gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), self.grad_clip_restoration)
+                gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), self.grad_clip_optics)
                 self.optimizer_W.step()
                 self.optimizer_Theta.step()
 

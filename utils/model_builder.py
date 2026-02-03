@@ -109,8 +109,9 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         cb_config = config.checkpoint.circuit_breaker
         circuit_breaker_config = {
             'enabled': getattr(cb_config, 'enabled', False),
-            'stage1_min_loss': getattr(cb_config, 'stage1_min_loss', 0.5),
-            'stage2_min_psnr': getattr(cb_config, 'stage2_min_psnr', 20.0)
+            'stage1_min_loss': getattr(cb_config, 'stage1_min_loss', 0.005),
+            'stage2_min_psnr': getattr(cb_config, 'stage2_min_psnr', 30.0),
+            'stage2_min_ssim': getattr(cb_config, 'stage2_min_ssim', 0.95)
         }
         
     trainer = DualBranchTrainer(
@@ -118,10 +119,14 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         physical_layer=physical_layer,
         lr_restoration=config.training.optimizer.lr_restoration,
         lr_optics=config.training.optimizer.lr_optics,
+        optimizer_type=getattr(config.training.optimizer, 'type', 'adamw'),
+        weight_decay=getattr(config.training.optimizer, 'weight_decay', 0.0),
         lambda_sup=config.training.loss.lambda_sup,
         lambda_coeff=config.training.loss.lambda_coeff,
         lambda_smooth=config.training.loss.lambda_smooth,
         lambda_image_reg=config.training.loss.lambda_image_reg,
+        grad_clip_restoration=getattr(config.training.gradient_clip, 'restoration', 5.0),
+        grad_clip_optics=getattr(config.training.gradient_clip, 'optics', 1.0),
         stage_schedule=config.training.stage_schedule,
         stage_weights=config.training.stage_weights,
         smoothness_grid_size=config.training.smoothness_grid_size,
@@ -159,6 +164,7 @@ def build_dataloader_from_config(config: Config, mode: str = 'train'):
         repeat_factor=repeat_factor,
         val_crop_size=val_crop_size,
         use_full_resolution=use_full_resolution,
+        random_flip=getattr(getattr(config.data, 'augmentation', None), 'random_flip', False),
         transform=None  # Default ToTensor
     )
     
