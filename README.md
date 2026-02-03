@@ -8,8 +8,10 @@ This implementation features:
 
 - **Dual-branch architecture**: Image restoration network + Optics identification network
 - **Differentiable physics layer**: Zernike → Wavefront → PSF → Spatially-varying convolution
-- **Self-supervised training**: Reblurring consistency loss allows training without ground-truth sharp images
-- **GPU-efficient**: Overlap-Add (OLA) strategy with FFT convolution
+- **3-Stage Decoupled Training**: Physics Only → Restoration → Joint Optimization
+- **TensorBoard Integration**: Visualizing metrics, gradients, and images during training
+- **Circuit Breaker**: Quality thresholds to gate training stage transitions
+- **Self-supervised physics training**: Reblurring consistency loss allows accurate PSF estimation
 
 ## Architecture
 
@@ -34,50 +36,69 @@ Input (Blurred Y)
 ## Installation
 
 ```bash
-pip install torch torchvision numpy matplotlib pyyaml tqdm
+pip install -r requirements.txt
 ```
 
 ## Quick Start
 
-### Training with Configuration System
+### Training
 
-All training workflows are managed by the unified entry point `demo_train.py`, driven entirely by configuration files.
+The training process uses a **3-Stage Decoupled Strategy** (Physics -> Restoration -> Joint) to ensure stability and physical accuracy.
 
 ```bash
-# 1. Standard Training (Default configuration)
-python demo_train.py
+# Standard Training (Uses config/default.yaml)
+python train.py
 
-# 2. Using Presets
-python demo_train.py --config config/lightweight.yaml    # Fast testing on CPU/Laptop
-python demo_train.py --config config/high_resolution.yaml # High-res training (1K+ images)
+# Specify Configuration File
+python train.py --config config/default.yaml
 
-# 3. Command Line Overrides (Flexible tuning)
-python demo_train.py --config config/default.yaml training.epochs=200 data.batch_size=4
+# Resume from Checkpoint
+python train.py --resume results/latest.pt
 ```
 
-**Available Presets:**
-- `config/default.yaml` - Standard balanced configuration.
-- `config/lightweight.yaml` - Lightweight setup for debugging or quick testing.
-- `config/high_resolution.yaml` - Optimized for high-resolution images.
-- `config/mlp_experiment.yaml` - Experimental architecture options.
+**Training Stages:**
+1. **Stage 1 (Physics Only)**: Trains `AberrationNet` using Re-blur Consistency Loss. Validates via Re-blur MSE.
+2. **Stage 2 (Restoration)**: Freezes physics, trains `RestorationNet` using paired data. Validates via PSNR & SSIM.
+3. **Stage 3 (Joint Finetuning)**: Unfreezes all modules, learning rate halved. Validates via Combined Metric.
 
-For a detailed guide on the configuration system, please refer to [CONFIG_USAGE_GUIDE.md](CONFIG_USAGE_GUIDE.md).
+**Circuit Breaker Mechanism:**
+The system uses strict quality thresholds to prevent premature stage transitions:
+- To enter Stage 2: Physics Re-blur MSE must be < `0.005`.
+- To enter Stage 3: Restoration PSNR > `30.0` AND SSIM > `0.95`.
+- If thresholds are not met, the current stage continues training.
 
-This process will:
-1. Load dataset (synthetic or DPDD).
-2. Train the dual-branch network.
-3. Save visualizations to `results/`.
+### Testing (Full Resolution)
+
+Evaluate the model on the full-resolution test set (1680 x 1120).
+
+```bash
+# Evaluate using the best joint model
+python test.py --checkpoint results/best_stage3_combined.pt --config config/default.yaml --save-images
+
+# Evaluate using the best restoration model (from Stage 2)
+python test.py --checkpoint results/best_stage2_psnr.pt --save-restored
+```
+
+This will generate:
+- CSV report (`test_results.csv`) with PSNR, SSIM, LPIPS, Reblur_MSE for every image.
+- Visual comparisons in `results/test_<timestamp>/comparisons`.
 
 ### Data Preparation (DPDD Dataset)
 
-To train on the Dual-Pixel Defocus Deblurring (DPDD) dataset:
-
-1. Download the Canon test set (`test_c`) to `data/dd_dp_dataset_png/test_c`.
-2. Run the preprocessing script to format and resize images:
+1. Place the DPDD dataset in `data/dd_dp_dataset_png/`. Structure:
+   ```
+   data/dd_dp_dataset_png/
+       train_c/
+           source/ (blur)
+           target/ (sharp)
+       val_c/
+       test_c/
+   ```
+2. Verify data integrity (Optional):
    ```bash
    python data/preprocess_dpdd.py
    ```
-3. This will generate the standardized dataset at `data/dpdd_1024/`.
+   *Note: This implementation reads directly from the source folders. No resizing preprocessing is required.*
 
 ### Run Tests
 
@@ -108,10 +129,13 @@ defocus/
 │   └── restoration_net.py    # U-Net image restoration
 ├── utils/
 │   ├── __init__.py
+│   ├── metrics.py            # Evaluation metrics (PSNR, SSIM, LPIPS)
+│   ├── model_builder.py      # Factory for creating models/dataloaders
 │   └── visualize.py          # Visualization utilities
 ├── tests/                    # Unit tests
-├── trainer.py                # DualBranchTrainer
-├── demo_train.py             # Main entry point
+├── train.py                  # Main training script
+├── test.py                   # Full-resolution testing script
+├── trainer.py                # DualBranchTrainer (3-Stage Training Logic)
 └── README.md
 ```
 

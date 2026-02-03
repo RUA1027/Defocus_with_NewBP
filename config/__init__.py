@@ -58,7 +58,7 @@ class OLAConfig:
     stride: int = 64
     pad_to_power_2: bool = True
     use_newbp: bool = True
-    True
+    
     def __post_init__(self):
         if self.stride > self.patch_size:
             raise ValueError(f"stride ({self.stride}) 不能大于 patch_size ({self.patch_size})")
@@ -132,9 +132,9 @@ class GradientClipConfig:
 @dataclass
 class StageScheduleConfig:
     """三阶段训练阶段配置"""
-    stage1_epochs: int = 80
-    stage2_epochs: int = 80
-    stage3_epochs: int = 40
+    stage1_epochs: int = 50   # Stage 1: Physics Only
+    stage2_epochs: int = 200  # Stage 2: Restoration with Fixed Physics
+    stage3_epochs: int = 50   # Stage 3: Joint Fine-tuning (学习率减半)
 
 
 @dataclass
@@ -158,12 +158,14 @@ class AugmentationConfig:
 @dataclass
 class DataConfig:
     """数据配置"""
-    data_root: str = "data/dpdd_1024"  # Default path
-    batch_size: int = 2
-    image_height: int = 1024
-    image_width: int = 1024
-    crop_size: int = 512              # 训练时随机裁剪尺寸
+    data_root: str = "data/dd_dp_dataset_png"  # 指向原始 DPDD 数据集
+    batch_size: int = 4
+    image_height: int = 1120           # 原始图像高度
+    image_width: int = 1680            # 原始图像宽度
+    crop_size: int = 512               # 训练时随机裁剪尺寸
+    val_crop_size: int = 1024          # 验证集中心裁剪尺寸
     num_workers: int = 4
+    repeat_factor: int = 100           # 虚拟长度倍数
     augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
 
 
@@ -197,7 +199,39 @@ class ExperimentConfig:
     name: str = "default"
     seed: int = 42
     device: str = "cuda"
-    epochs: int = 100
+    epochs: int = 300  # 总训练轮数 (50 + 200 + 50)
+    save_interval: int = 20  # 定期存档间隔
+    log_interval: int = 1
+    output_dir: str = "results"
+    tensorboard: 'TensorBoardConfig' = field(default_factory=lambda: TensorBoardConfig())
+
+
+@dataclass
+class TensorBoardConfig:
+    """TensorBoard 配置"""
+    enabled: bool = True
+    log_dir: str = "runs"
+    log_images: bool = True
+    image_log_interval: int = 10
+
+
+@dataclass
+class CircuitBreakerConfig:
+    """熔断机制配置"""
+    enabled: bool = True
+    stage1_min_loss: float = 0.5     # Stage 1 验证 Loss 需低于此值才能进入 Stage 2
+    stage2_min_psnr: float = 20.0    # Stage 2 验证 PSNR 需高于此值才能进入 Stage 3
+    stage2_min_ssim: float = 0.0     # Stage 2 验证 SSIM 需高于此值才能进入 Stage 3 (0.0 表示不启用)
+
+
+@dataclass
+class CheckpointConfig:
+    """检查点保存策略配置"""
+    save_best_per_stage: bool = True
+    stage1_metric: str = "reblur_mse"  # Stage 1 使用重模糊误差
+    stage2_metric: str = "psnr"        # Stage 2 使用 PSNR
+    stage3_metric: str = "combined"    # Stage 3 使用综合指标
+    circuit_breaker: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
     save_interval: int = 10
     log_interval: int = 1
     output_dir: str = "results"
@@ -214,6 +248,7 @@ class Config:
     data: DataConfig = field(default_factory=DataConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
+    checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     
     def __str__(self):
         """格式化打印配置"""

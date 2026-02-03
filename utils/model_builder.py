@@ -1,12 +1,13 @@
 import torch
 import torch.nn as nn
+import os
 from config import Config
 from models.zernike import DifferentiableZernikeGenerator
 from models.aberration_net import AberrationNet, PolynomialAberrationNet
 from models.restoration_net import RestorationNet
 from models.physical_layer import SpatiallyVaryingPhysicalLayer
 from trainer import DualBranchTrainer
-from utils.dpdd_dataset import DPDDDataset
+from utils.dpdd_dataset import DPDDDataset, DPDDTestDataset
 from torch.utils.data import DataLoader
 
 def build_models_from_config(config: Config, device: str):
@@ -85,13 +86,32 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
     Returns:
         DualBranchTrainer 对象
     """
-    # 尝试从配置中获取 accumulation_steps，如果没有则默认为 1
-    # Check if attribute exists (it might not be in config definition yet)
+    # 获取 accumulation_steps
     if hasattr(config.training, 'accumulation_steps'):
         accumulation_steps = config.training.accumulation_steps
     else:
-        # Fallback or default
         accumulation_steps = 1
+    
+    # TensorBoard 配置
+    tensorboard_dir = None
+    if hasattr(config, 'experiment') and hasattr(config.experiment, 'tensorboard'):
+        tb_config = config.experiment.tensorboard
+        if getattr(tb_config, 'enabled', False):
+            tensorboard_dir = os.path.join(
+                config.experiment.output_dir, 
+                getattr(tb_config, 'log_dir', 'runs'),
+                config.experiment.name
+            )
+    
+    # 熔断机制配置
+    circuit_breaker_config = None
+    if hasattr(config, 'checkpoint') and hasattr(config.checkpoint, 'circuit_breaker'):
+        cb_config = config.checkpoint.circuit_breaker
+        circuit_breaker_config = {
+            'enabled': getattr(cb_config, 'enabled', False),
+            'stage1_min_loss': getattr(cb_config, 'stage1_min_loss', 0.5),
+            'stage2_min_psnr': getattr(cb_config, 'stage2_min_psnr', 20.0)
+        }
         
     trainer = DualBranchTrainer(
         restoration_net=restoration_net,
@@ -106,7 +126,9 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         stage_weights=config.training.stage_weights,
         smoothness_grid_size=config.training.smoothness_grid_size,
         accumulation_steps=accumulation_steps,
-        device=device
+        device=device,
+        tensorboard_dir=tensorboard_dir,
+        circuit_breaker_config=circuit_breaker_config
     )
     
     return trainer
@@ -121,23 +143,61 @@ def build_dataloader_from_config(config: Config, mode: str = 'train'):
     Returns:
         DataLoader 对象
     """
-    # 训练时使用配置的 crop_size，验证/测试时使用完整图像尺寸
-    crop_size = config.data.crop_size if mode == 'train' else config.data.image_height
+    # 获取配置参数
+    crop_size = config.data.crop_size
+    val_crop_size = getattr(config.data, 'val_crop_size', 1024)
+    repeat_factor = getattr(config.data, 'repeat_factor', 1) if mode == 'train' else 1
     
+    # 测试集使用全分辨率
+    use_full_resolution = (mode == 'test')
+    
+    # 创建数据集
     dataset = DPDDDataset(
         root_dir=config.data.data_root, 
         mode=mode, 
         crop_size=crop_size,
+        repeat_factor=repeat_factor,
+        val_crop_size=val_crop_size,
+        use_full_resolution=use_full_resolution,
         transform=None  # Default ToTensor
     )
     
     # 只有训练集需要 shuffle
     shuffle = (mode == 'train')
     
+    # 测试集 batch_size 通常为 1（全分辨率图像较大）
+    batch_size = 1 if mode == 'test' else config.data.batch_size
+    
     loader = DataLoader(
         dataset, 
-        batch_size=config.data.batch_size,
+        batch_size=batch_size,
         shuffle=shuffle,
+        num_workers=config.data.num_workers,
+        pin_memory=True if config.experiment.device == 'cuda' else False,
+        drop_last=(mode == 'train')  # 训练时丢弃不完整的最后一个 batch
+    )
+    
+    return loader
+
+
+def build_test_dataloader_from_config(config: Config):
+    """专门构建测试集 DataLoader（全分辨率）
+    
+    Args:
+        config: 配置对象
+    
+    Returns:
+        DataLoader 对象
+    """
+    dataset = DPDDTestDataset(
+        root_dir=config.data.data_root,
+        transform=None
+    )
+    
+    loader = DataLoader(
+        dataset,
+        batch_size=1,  # 测试集使用 batch_size=1
+        shuffle=False,
         num_workers=config.data.num_workers,
         pin_memory=True if config.experiment.device == 'cuda' else False
     )

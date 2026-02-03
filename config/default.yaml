@@ -87,33 +87,26 @@ training:
   # 三阶段损失权重配置 (Stage Weights)
   # 这里定义每个阶段具体的权重组合
   stage_weights:
-    physics_only:
+    physics_only:                   # 第一阶段：专攻物理
       w_data: 1.0
-      w_sup: 0.0
-      w_smooth: 0.1      # lambda_smooth
-      w_coeff: 0.05      # lambda_coeff
+      w_sup: 0.0                    # 没复原，不需要监督
+      w_smooth: 0.1                 # 需要较强平滑约束
+      w_coeff: 0.05                 # 需要限制系数大小
       w_img_reg: 0.0
     
-    restoration_fixed_physics:
-      w_data: 0.1
-      w_sup: 1.0
-      w_smooth: 0.0
+    restoration_fixed_physics:      # 第二阶段：物理当裁判，练复原
+      w_data: 0.1                   # 物理自监督辅助
+      w_sup: 1.0                    # 强监督为主
+      w_smooth: 0.0                 # 物理层冻结，不需要约束系数
       w_coeff: 0.0
-      w_img_reg: 0.001   # lambda_image_reg
+      w_img_reg: 0.001              # 复原图像加点全变分正则
       
-    joint:
+    joint:                          # 第三阶段：一起微调
       w_data: 0.5
       w_sup: 1.0
-      w_smooth: 0.05     # 0.1 * 0.5
-      w_coeff: 0.01      # 0.05 * 0.2
-      w_img_reg: 0.0001  # 0.001 * 0.1
-  
-  # 损失函数权重 (已废弃: 训练时使用动态权重表)
-  loss:
-    lambda_sup: 1.0              # 旧版固定权重 (动态权重模式下不再使用)
-    lambda_coeff: 0.05
-    lambda_smooth: 0.1
-    lambda_image_reg: 0.001
+      w_smooth: 0.05
+      w_coeff: 0.01
+      w_img_reg: 0.0001
   
   # 梯度裁剪
   gradient_clip:
@@ -126,10 +119,11 @@ training:
   accumulation_steps: 4          # 梯度累积步数，模拟更大的 Batch Size
 
   # 三阶段训练计划 (Stage 1/2/3)
+  # 总计 300 Epochs: 50 + 200 + 50
   stage_schedule:
-    stage1_epochs: 80             # Stage 1: Physics Only
-    stage2_epochs: 80             # Stage 2: Restoration with Fixed Physics
-    stage3_epochs: 40             # Stage 3: Joint Fine-tuning
+    stage1_epochs: 50             # Stage 1: Physics Only (物理层单独训练)
+    stage2_epochs: 200            # Stage 2: Restoration with Fixed Physics (复原网络训练)
+    stage3_epochs: 50             # Stage 3: Joint Fine-tuning (联合微调，学习率减半)
   
   # 正则化采样
   smoothness_grid_size: 16       # TV 损失计算的网格大小
@@ -138,15 +132,21 @@ training:
 # 数据配置 (Data)
 # -----------------------------------------------------------------------------
 data:
-  # 数据集根路径 (请指向预处理后的 dpdd_1024 文件夹)
-  # DPDD Canon Set: train=350对, val=74对, test=76对
-  data_root: "./data/dpdd_1024"
+  # 数据集根路径 (直接指向原始 DPDD 数据集，包含 train_c/val_c/test_c)
+  # DPDD Canon Set: train_c=350对, val_c=74对, test_c=76对
+  # 原始图像尺寸: 1680 x 1120 像素
+  data_root: "./data/dd_dp_dataset_png"
 
-  batch_size: 4                  # 批大小 (由于 1024x1024 图像较大，建议 2-4)
-  image_height: 1024             # 图像高度
-  image_width: 1024              # 图像宽度
+  batch_size: 4                  # 批大小 (由于图像较大，建议 2-4)
+  image_height: 1120             # 原始图像高度
+  image_width: 1680              # 原始图像宽度
   crop_size: 512                 # 训练时随机裁剪尺寸 (节省显存)
+  val_crop_size: 1024            # 验证集中心裁剪尺寸
   num_workers: 4                 # 数据加载线程数
+  
+  # 虚拟长度机制: 每张图在一个 Epoch 内被随机裁剪的次数
+  # 训练集: 350 * 100 = 35000 次采样/epoch
+  repeat_factor: 100
   
   # 数据增强
   augmentation:
@@ -176,7 +176,33 @@ experiment:
   name: "dpdd_physics_driven"    # 实验名称
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备: "cuda" 或 "cpu"
-  epochs: 200                    # 训练轮数 (= stage1 + stage2 + stage3 = 80+80+40)
-  save_interval: 10              # 保存间隔 (epochs)
+  epochs: 300                    # 训练轮数 (= stage1 + stage2 + stage3 = 50+200+50)
+  save_interval: 20              # 定期存档间隔 (epochs)
   log_interval: 1                # 日志间隔 (epochs)
   output_dir: "results"          # 输出目录
+  
+  # TensorBoard 配置
+  tensorboard:
+    enabled: true                # 是否启用 TensorBoard
+    log_dir: "runs"              # TensorBoard 日志目录
+    log_images: true             # 是否记录图像
+    image_log_interval: 10       # 图像记录间隔 (epochs)
+
+# -----------------------------------------------------------------------------
+# 模型保存策略 (Checkpoint Strategy)
+# -----------------------------------------------------------------------------
+checkpoint:
+  # 各阶段最佳模型保存 (不会被覆盖)
+  save_best_per_stage: true
+  
+  # 验证指标选择
+  stage1_metric: "reblur_mse"    # Stage 1: 重模糊一致性误差 (越低越好)
+  stage2_metric: "psnr"          # Stage 2: PSNR (越高越好)
+  stage3_metric: "combined"      # Stage 3: 综合指标 (PSNR + 物理约束)
+  
+  # 熔断机制阈值
+  circuit_breaker:
+    enabled: true
+    stage1_min_loss: 0.005         # Stage 1 验证 Reblur MSE 需低于此值才能进入 Stage 2
+    stage2_min_psnr: 30.0        # Stage 2 验证 PSNR 需高于此值才能进入 Stage 3
+    stage2_min_ssim: 0.95         # Stage 2 验证 SSIM 需高于此值才能进入 Stage 3

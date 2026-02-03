@@ -1,6 +1,6 @@
 import math
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -8,7 +8,15 @@ import torch.nn.functional as F
 
 
 class PerformanceEvaluator:
-    """多维度评估器：图像质量 + 物理一致性 + 计算效率"""
+    """
+    多维度评估器：图像质量 + 物理一致性 + 计算效率
+    
+    支持:
+    - 图像质量指标: PSNR, SSIM, LPIPS
+    - 物理一致性指标: Re-blur MSE, PSF Smoothness
+    - 计算效率指标: Parameters, FLOPs, Inference Time
+    - 阶段特定评估
+    """
 
     def __init__(self, device: str = "cuda", ssim_window: int = 11, ssim_sigma: float = 1.5):
         self.device = device
@@ -186,3 +194,136 @@ class PerformanceEvaluator:
                        smoothness_grid_size: int = 16) -> Dict[str, float]:
         evaluator = PerformanceEvaluator(device=device)
         return evaluator.evaluate(restoration_net, physical_layer, val_loader, device, smoothness_grid_size)
+
+    @staticmethod
+    def evaluate_stage1(physical_layer: nn.Module, val_loader, device: str,
+                        smoothness_grid_size: int = 16) -> Dict[str, float]:
+        """
+        Stage 1 专用评估: 只评估物理层的重模糊一致性
+        
+        Args:
+            physical_layer: 物理层
+            val_loader: 验证集 DataLoader
+            device: 计算设备
+            smoothness_grid_size: 平滑性计算网格大小
+        
+        Returns:
+            dict: 包含 Reblur_MSE 和 PSF_Smoothness
+        """
+        physical_layer.eval()
+        
+        reblur_total = 0.0
+        n = 0
+        
+        with torch.no_grad():
+            for batch in val_loader:
+                if isinstance(batch, dict):
+                    blur = batch["blur"].to(device)
+                    sharp = batch["sharp"].to(device)
+                    crop_info = batch.get("crop_info", None)
+                    if crop_info is not None:
+                        crop_info = crop_info.to(device)
+                else:
+                    blur, sharp = batch
+                    blur = blur.to(device)
+                    sharp = sharp.to(device)
+                    crop_info = None
+                
+                # Stage 1: 用清晰图重模糊，与真实模糊图比较
+                y_reblur = physical_layer(sharp, crop_info=crop_info)
+                reblur_total += F.mse_loss(y_reblur, blur).item()
+                n += 1
+        
+        # 计算 PSF 平滑性
+        smoothness = float("nan")
+        if hasattr(physical_layer, "compute_coefficient_smoothness"):
+            with torch.no_grad():
+                smoothness = physical_layer.compute_coefficient_smoothness(smoothness_grid_size).item()
+        
+        return {
+            "Reblur_MSE": reblur_total / max(n, 1),
+            "PSF_Smoothness": smoothness
+        }
+
+    def evaluate_full_resolution(self, restoration_net: nn.Module, physical_layer: nn.Module, 
+                                  test_loader, device: str) -> Tuple[Dict[str, float], list]:
+        """
+        全分辨率测试集评估（用于论文最终结果）
+        
+        Args:
+            restoration_net: 复原网络
+            physical_layer: 物理层
+            test_loader: 测试集 DataLoader
+            device: 计算设备
+        
+        Returns:
+            tuple: (平均指标字典, 每张图像的详细结果列表)
+        """
+        restoration_net.eval()
+        physical_layer.eval()
+        
+        results = []
+        
+        psnr_total = 0.0
+        ssim_total = 0.0
+        lpips_total = 0.0
+        reblur_total = 0.0
+        n = 0
+        lpips_count = 0
+        
+        with torch.no_grad():
+            for batch in test_loader:
+                if isinstance(batch, dict):
+                    blur = batch["blur"].to(device)
+                    sharp = batch["sharp"].to(device)
+                    crop_info = batch.get("crop_info", None)
+                    filename = batch.get("filename", [f"image_{n}"])[0]
+                    if crop_info is not None:
+                        crop_info = crop_info.to(device)
+                else:
+                    blur, sharp = batch
+                    blur = blur.to(device)
+                    sharp = sharp.to(device)
+                    crop_info = None
+                    filename = f"image_{n}"
+                
+                # 复原
+                x_hat = restoration_net(blur)
+                
+                # 计算指标
+                psnr = self._psnr(x_hat, sharp).item()
+                ssim = self._ssim(x_hat, sharp).item()
+                
+                lp = self._lpips_score(x_hat, sharp)
+                lpips_val = lp.item() if lp is not None else float("nan")
+                
+                # 重模糊误差
+                y_reblur = physical_layer(x_hat, crop_info=crop_info)
+                reblur_mse = F.mse_loss(y_reblur, blur).item()
+                
+                # 记录单张图像结果
+                results.append({
+                    "filename": filename,
+                    "PSNR": psnr,
+                    "SSIM": ssim,
+                    "LPIPS": lpips_val,
+                    "Reblur_MSE": reblur_mse
+                })
+                
+                psnr_total += psnr
+                ssim_total += ssim
+                if not math.isnan(lpips_val):
+                    lpips_total += lpips_val
+                    lpips_count += 1
+                reblur_total += reblur_mse
+                n += 1
+        
+        avg_metrics = {
+            "PSNR": psnr_total / max(n, 1),
+            "SSIM": ssim_total / max(n, 1),
+            "LPIPS": (lpips_total / lpips_count) if lpips_count > 0 else float("nan"),
+            "Reblur_MSE": reblur_total / max(n, 1),
+            "Num_Images": n
+        }
+        
+        return avg_metrics, results
