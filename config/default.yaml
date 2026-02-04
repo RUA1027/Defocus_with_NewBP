@@ -179,12 +179,12 @@ experiment:
   epochs: 300                    # 训练轮数 (= stage1 + stage2 + stage3 = 50+200+50)
   save_interval: 20              # 定期存档间隔 (epochs)
   log_interval: 1                # 日志间隔 (epochs)
-  output_dir: "results"          # 输出目录
+  output_dir: "/root/autodl-nas/Defocus_with_NewBP/experiments"  # 输出目录 (AutoDL 网盘)
   
   # TensorBoard 配置
   tensorboard:
     enabled: true                # 是否启用 TensorBoard
-    log_dir: "runs"              # TensorBoard 日志目录
+    log_dir: "/root/autodl-nas/Defocus_with_NewBP/logs"          # TensorBoard 日志目录 (AutoDL 网盘)
     log_images: true             # 是否记录图像
     image_log_interval: 10       # 图像记录间隔 (epochs)
 

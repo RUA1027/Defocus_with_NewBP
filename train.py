@@ -23,6 +23,7 @@ import math
 from typing import Sized, cast, Any, Dict
 from tqdm import tqdm
 from datetime import datetime
+from pathlib import Path
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -73,11 +74,23 @@ def main():
     
     # 创建输出目录
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(config.experiment.output_dir, f"{config.experiment.name}_{timestamp}")
+    base_output_dir = Path(config.experiment.output_dir)
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+
+    output_dir = os.path.join(str(base_output_dir), f"{config.experiment.name}_{timestamp}")
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
     # 将本次实验输出目录写回配置，确保 TensorBoard 与保存路径一致
     config.experiment.output_dir = output_dir
+
+    # TensorBoard 日志目录（与 utils.model_builder.py 保持一致的路径规则）
+    if getattr(config.experiment.tensorboard, 'enabled', False):
+        tb_log_dir = os.path.join(
+            config.experiment.output_dir,
+            getattr(config.experiment.tensorboard, 'log_dir', 'runs'),
+            config.experiment.name
+        )
+        Path(tb_log_dir).mkdir(parents=True, exist_ok=True)
 
     # 4. 构建数据
     print("\n" + "="*60)
