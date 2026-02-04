@@ -429,13 +429,18 @@ def _build_config_from_dict(data: Dict[str, Any]) -> Config:
     )
     
     # 处理 data 的嵌套
+    # CONFIG_FIX: 添加缺失的 data_root, crop_size, val_crop_size, repeat_factor 字段解析
     d_data = data.get('data', {})
     augmentation = _dict_to_dataclass(AugmentationConfig, d_data.get('augmentation', {}))
     data_config = DataConfig(
+        data_root=d_data.get('data_root', 'data/dd_dp_dataset_png'),
         batch_size=d_data.get('batch_size', 2),
-        image_height=d_data.get('image_height', 256),
-        image_width=d_data.get('image_width', 256),
+        image_height=d_data.get('image_height', 1120),
+        image_width=d_data.get('image_width', 1680),
+        crop_size=d_data.get('crop_size', 512),
+        val_crop_size=d_data.get('val_crop_size', 1024),
         num_workers=d_data.get('num_workers', 4),
+        repeat_factor=d_data.get('repeat_factor', 100),
         augmentation=augmentation
     )
     
@@ -445,7 +450,33 @@ def _build_config_from_dict(data: Dict[str, Any]) -> Config:
     coeff_maps = _dict_to_dataclass(CoeffMapsConfig, vis_data.get('coeff_maps', {}))
     visualization = VisualizationConfig(psf_grid=psf_grid, coeff_maps=coeff_maps)
     
-    experiment = _dict_to_dataclass(ExperimentConfig, data.get('experiment', {}))
+    # CONFIG_FIX: 修复 experiment 的 tensorboard 嵌套解析
+    exp_data = data.get('experiment', {})
+    tensorboard = _dict_to_dataclass(TensorBoardConfig, exp_data.get('tensorboard', {}))
+    experiment = ExperimentConfig(
+        name=exp_data.get('name', 'default'),
+        seed=exp_data.get('seed', 42),
+        device=exp_data.get('device', 'cuda'),
+        epochs=exp_data.get('epochs', 300),
+        save_interval=exp_data.get('save_interval', 20),
+        log_interval=exp_data.get('log_interval', 1),
+        output_dir=exp_data.get('output_dir', 'results'),
+        tensorboard=tensorboard
+    )
+    
+    # CONFIG_FIX: 添加缺失的 checkpoint 配置解析
+    ckpt_data = data.get('checkpoint', {})
+    circuit_breaker = _dict_to_dataclass(CircuitBreakerConfig, ckpt_data.get('circuit_breaker', {}))
+    checkpoint = CheckpointConfig(
+        save_best_per_stage=ckpt_data.get('save_best_per_stage', True),
+        stage1_metric=ckpt_data.get('stage1_metric', 'reblur_mse'),
+        stage2_metric=ckpt_data.get('stage2_metric', 'psnr'),
+        stage3_metric=ckpt_data.get('stage3_metric', 'combined'),
+        circuit_breaker=circuit_breaker,
+        save_interval=ckpt_data.get('save_interval', 10),
+        log_interval=ckpt_data.get('log_interval', 1),
+        output_dir=ckpt_data.get('output_dir', 'results')
+    )
     
     return Config(
         physics=physics,
@@ -455,7 +486,8 @@ def _build_config_from_dict(data: Dict[str, Any]) -> Config:
         training=training,
         data=data_config,
         visualization=visualization,
-        experiment=experiment
+        experiment=experiment,
+        checkpoint=checkpoint  # CONFIG_FIX: 添加 checkpoint 配置
     )
 
 
