@@ -27,7 +27,7 @@ ola:
   patch_size: 64                 # 补丁大小
   stride: 32                     # 补丁步长 (50% 重叠)
   pad_to_power_2: true           # FFT 是否填充到 2 的幂
-  use_newbp: true                # 是否启用 NewBP 算法 (非对角雅可比)
+  use_newbp: false                # 是否启用 NewBP 算法 (非对角雅可比)
 
 # -----------------------------------------------------------------------------
 # 像差预测网络 (Aberration Network)
