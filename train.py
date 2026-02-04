@@ -53,6 +53,10 @@ def main():
     parser.add_argument('--resume', type=str, default=None, help='Path to checkpoint to resume from')
     args = parser.parse_args()
 
+    # 启用 CUDNN Benchmark 以加速固定尺寸输入的训练
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
+
     # 2. 加载配置
     print(f"Loading config from {args.config}...")
     config = load_config(args.config)
