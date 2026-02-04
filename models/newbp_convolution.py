@@ -289,6 +289,21 @@ class NewBPConvolutionFunction(torch.autograd.Function):
                 corr = corr.sum(dim=1, keepdim=True)  # Sum over input channels
             grad_kernels = corr.view(BN, C_k, K, K)
         
+        # =====================================================================
+        # [BUG FIX] 核梯度方向修正
+        # ---------------------------------------------------------------------
+        # 前向传播使用了翻转后的核: Y = X * flip(K)
+        # 当前计算的 grad_kernels 是关于 flip(K) 的梯度: dL/d(flip(K))
+        # 但 Autograd 需要的是关于原始 K 的梯度: dL/dK
+        # 
+        # 由于 flip 是自逆运算 (flip(flip(x)) = x)，根据链式法则:
+        #   dL/dK = flip(dL/d(flip(K)))
+        # 
+        # 不加此翻转会导致梯度方向在空间上 180° 倒置，
+        # 使优化器沿错误方向更新参数，导致 Loss 上升而非下降。
+        # =====================================================================
+        grad_kernels = torch.flip(grad_kernels, dims=[-2, -1])
+        
         return grad_patches, grad_kernels, None, None, None
 
 
