@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import os
+from typing import Optional
 from config import Config
 from models.zernike import DifferentiableZernikeGenerator
 from models.aberration_net import AberrationNet, PolynomialAberrationNet
@@ -74,7 +75,7 @@ def build_models_from_config(config: Config, device: str):
     return zernike_gen, aberration_net, restoration_net, physical_layer
 
 
-def build_trainer_from_config(config: Config, restoration_net, physical_layer, device: str, tensorboard_dir: str = None):
+def build_trainer_from_config(config: Config, restoration_net, physical_layer, device: str, tensorboard_dir: Optional[str] = None):
     """根据配置构建训练器
     
     Args:

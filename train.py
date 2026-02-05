@@ -298,7 +298,7 @@ def main():
         
         # 打印验证指标
         try:
-            from tabulate import tabulate
+            from tabulate import tabulate  # type: ignore[import-not-found]
             rows = []
             for k, v in val_metrics.items():
                 if isinstance(v, float) and math.isnan(v):
