@@ -7,12 +7,19 @@ from typing import Any, Mapping, Optional, Dict, Union
 
 # TensorBoard 支持
 try:
-    from torch.utils.tensorboard import SummaryWriter as _SummaryWriter
+    # 尝试从 writer 子模块导入 (解决 IDE 静态检查报错)
+    from torch.utils.tensorboard.writer import SummaryWriter as _SummaryWriter
     SummaryWriter = _SummaryWriter
     TENSORBOARD_AVAILABLE = True
 except ImportError:
-    TENSORBOARD_AVAILABLE = False
-    SummaryWriter = None
+    try:
+        # 回退到标准导入方式
+        from torch.utils.tensorboard import SummaryWriter as _SummaryWriter
+        SummaryWriter = _SummaryWriter
+        TENSORBOARD_AVAILABLE = True
+    except ImportError:
+        TENSORBOARD_AVAILABLE = False
+        SummaryWriter = None
 
 '''
 ================================================================================

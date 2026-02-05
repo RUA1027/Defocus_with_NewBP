@@ -74,7 +74,7 @@ def build_models_from_config(config: Config, device: str):
     return zernike_gen, aberration_net, restoration_net, physical_layer
 
 
-def build_trainer_from_config(config: Config, restoration_net, physical_layer, device: str):
+def build_trainer_from_config(config: Config, restoration_net, physical_layer, device: str, tensorboard_dir: str = None):
     """根据配置构建训练器
     
     Args:
@@ -93,15 +93,18 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         accumulation_steps = 1
     
     # TensorBoard 配置
-    tensorboard_dir = None
-    if hasattr(config, 'experiment') and hasattr(config.experiment, 'tensorboard'):
+    if tensorboard_dir is None and hasattr(config, 'experiment') and hasattr(config.experiment, 'tensorboard'):
         tb_config = config.experiment.tensorboard
         if getattr(tb_config, 'enabled', False):
-            tensorboard_dir = os.path.join(
-                config.experiment.output_dir, 
-                getattr(tb_config, 'log_dir', 'runs'),
-                config.experiment.name
-            )
+            base_dir = getattr(tb_config, 'log_dir', 'runs')
+            if os.path.isabs(base_dir):
+                tensorboard_dir = os.path.join(base_dir, config.experiment.name)
+            else:
+                tensorboard_dir = os.path.join(
+                    config.experiment.output_dir,
+                    base_dir,
+                    config.experiment.name
+                )
     
     # 熔断机制配置
     circuit_breaker_config = None

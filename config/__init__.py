@@ -199,10 +199,14 @@ class ExperimentConfig:
     name: str = "default"
     seed: int = 42
     device: str = "cuda"
-    epochs: int = 300  # 总训练轮数 (50 + 200 + 50)
+    epochs: int = 300  # 总训练轮数 (需与 stage_schedule 总和一致)
     save_interval: int = 20  # 定期存档间隔
     log_interval: int = 1
     output_dir: str = "results"
+    run_name: Optional[str] = None
+    use_timestamp: bool = True
+    timestamp_format: str = "%m%d_%H%M"
+    checkpoints_subdir: str = "checkpoints"
     tensorboard: 'TensorBoardConfig' = field(default_factory=lambda: TensorBoardConfig())
 
 
@@ -211,6 +215,7 @@ class TensorBoardConfig:
     """TensorBoard 配置"""
     enabled: bool = True
     log_dir: str = "runs"
+    append_run_name: bool = False
     log_images: bool = True
     image_log_interval: int = 10
 
@@ -461,6 +466,10 @@ def _build_config_from_dict(data: Dict[str, Any]) -> Config:
         save_interval=exp_data.get('save_interval', 20),
         log_interval=exp_data.get('log_interval', 1),
         output_dir=exp_data.get('output_dir', 'results'),
+        run_name=exp_data.get('run_name'),
+        use_timestamp=exp_data.get('use_timestamp', True),
+        timestamp_format=exp_data.get('timestamp_format', '%m%d_%H%M'),
+        checkpoints_subdir=exp_data.get('checkpoints_subdir', 'checkpoints'),
         tensorboard=tensorboard
     )
     

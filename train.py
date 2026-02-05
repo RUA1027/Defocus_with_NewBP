@@ -4,7 +4,7 @@ DPDD 物理驱动复原网络 - 训练脚本
 使用 utils.model_builder 统一构建组件，支持真实 DPDD 数据集训练。
 
 特性:
-- 三阶段训练: Physics Only (50) -> Restoration (200) -> Joint (50)
+- 三阶段训练: 由 training.stage_schedule 定义
 - 虚拟长度机制: 每张图在一个 Epoch 内被随机裁剪多次
 - TensorBoard 可视化
 - 熔断机制: 阶段切换前验证模型质量
@@ -76,25 +76,48 @@ def main():
     print(f"Device: {device}")
     print(f"Seed: {config.experiment.seed}")
     
+    s1 = config.training.stage_schedule.stage1_epochs
+    s2 = config.training.stage_schedule.stage2_epochs
+    s3 = config.training.stage_schedule.stage3_epochs
+    schedule_total = s1 + s2 + s3
+    if config.experiment.epochs != schedule_total:
+        raise ValueError(
+            "config.experiment.epochs must match the sum of training.stage_schedule "
+            f"(epochs={config.experiment.epochs}, schedule_total={schedule_total})."
+        )
+
     # 创建输出目录
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_output_dir = Path(config.experiment.output_dir)
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_dir = os.path.join(str(base_output_dir), f"{config.experiment.name}_{timestamp}")
+    run_name = config.experiment.run_name or config.experiment.name
+    if config.experiment.use_timestamp:
+        run_name = f"{run_name}_{datetime.now().strftime(config.experiment.timestamp_format)}"
+
+    output_dir = str(base_output_dir / run_name)
     os.makedirs(output_dir, exist_ok=True)
+    checkpoints_subdir = config.experiment.checkpoints_subdir or "checkpoints"
+    checkpoints_dir = os.path.join(output_dir, checkpoints_subdir)
+    os.makedirs(checkpoints_dir, exist_ok=True)
+
     print(f"Output directory: {output_dir}")
-    # 将本次实验输出目录写回配置，确保 TensorBoard 与保存路径一致
+    print(f"Checkpoints will be saved to: {checkpoints_dir}")
+
+    # 将本次实验输出目录写回配置，确保其他模块使用一致路径
     config.experiment.output_dir = output_dir
 
-    # TensorBoard 日志目录（与 utils.model_builder.py 保持一致的路径规则）
+    # TensorBoard 日志目录
+    tb_log_dir = None
     if getattr(config.experiment.tensorboard, 'enabled', False):
-        tb_log_dir = os.path.join(
-            config.experiment.output_dir,
-            getattr(config.experiment.tensorboard, 'log_dir', 'runs'),
-            config.experiment.name
-        )
+        base_tb_dir = config.experiment.tensorboard.log_dir
+        if not os.path.isabs(base_tb_dir):
+            base_tb_dir = os.path.join(output_dir, base_tb_dir)
+        if config.experiment.tensorboard.append_run_name:
+            tb_log_dir = os.path.join(base_tb_dir, run_name)
+        else:
+            tb_log_dir = base_tb_dir
         Path(tb_log_dir).mkdir(parents=True, exist_ok=True)
+        print(f"TensorBoard logs: {tb_log_dir}")
 
     # 4. 构建数据
     print("\n" + "="*60)
@@ -131,12 +154,15 @@ def main():
         build_models_from_config(config, device)
     
     print("\nInitializing Trainer...")
-    trainer = build_trainer_from_config(config, restoration_net, physical_layer, device)
+    trainer = build_trainer_from_config(
+        config,
+        restoration_net,
+        physical_layer,
+        device,
+        tensorboard_dir=tb_log_dir
+    )
     
     # 打印训练计划
-    s1 = config.training.stage_schedule.stage1_epochs
-    s2 = config.training.stage_schedule.stage2_epochs
-    s3 = config.training.stage_schedule.stage3_epochs
     print(f"\n训练计划:")
     print(f"  Stage 1 (Physics Only):        Epochs 1-{s1}")
     print(f"  Stage 2 (Restoration):         Epochs {s1+1}-{s1+s2}")
@@ -306,28 +332,28 @@ def main():
         
         # 保存阶段最佳模型
         if stage == 'physics_only' and is_best.get('reblur_mse', False):
-            best_path = os.path.join(output_dir, "best_stage1_physics.pt")
+            best_path = os.path.join(checkpoints_dir, "best_stage1_physics.pt")
             trainer.save_checkpoint(best_path, epoch=current_epoch, stage=stage, val_metrics=val_metrics)
             print(f"  ✓ New best Stage 1 model saved: Reblur_MSE={val_metrics.get('Reblur_MSE', 0):.6f}")
             
         elif stage == 'restoration_fixed_physics' and is_best.get('psnr', False):
-            best_path = os.path.join(output_dir, "best_stage2_restoration.pt")
+            best_path = os.path.join(checkpoints_dir, "best_stage2_restoration.pt")
             trainer.save_checkpoint(best_path, epoch=current_epoch, stage=stage, val_metrics=val_metrics)
             print(f"  ✓ New best Stage 2 model saved: PSNR={val_metrics.get('PSNR', 0):.2f}")
             
         elif stage == 'joint' and is_best.get('combined', False):
-            best_path = os.path.join(output_dir, "best_stage3_joint.pt")
+            best_path = os.path.join(checkpoints_dir, "best_stage3_joint.pt")
             trainer.save_checkpoint(best_path, epoch=current_epoch, stage=stage, val_metrics=val_metrics)
             print(f"  ✓ New best Stage 3 model saved: PSNR={val_metrics.get('PSNR', 0):.2f}")
 
         # --- Periodic Checkpointing (定期存档，每 20 个 epoch) ---
         if current_epoch % save_interval == 0:
-            periodic_path = os.path.join(output_dir, f"checkpoint_epoch{current_epoch:03d}.pt")
+            periodic_path = os.path.join(checkpoints_dir, f"checkpoint_epoch{current_epoch:03d}.pt")
             trainer.save_checkpoint(periodic_path, epoch=current_epoch, stage=stage, val_metrics=val_metrics)
             print(f"  ✓ Periodic checkpoint saved: {periodic_path}")
 
     # 8. 训练结束，保存最终模型
-    final_path = os.path.join(output_dir, "final_model.pt")
+    final_path = os.path.join(checkpoints_dir, "final_model.pt")
     trainer.save_checkpoint(final_path, epoch=epochs, stage=stage, val_metrics=val_metrics)
     print(f"\n✓ Final model saved: {final_path}")
     
@@ -343,8 +369,7 @@ def main():
     print(f"  Stage 2 (Restoration): PSNR = {trainer.best_metrics['restoration_fixed_physics']['psnr']:.2f}")
     print(f"  Stage 3 (Joint): PSNR = {trainer.best_metrics['joint']['psnr']:.2f}")
     print(f"\nOutput directory: {output_dir}")
-    if config.experiment.tensorboard.enabled:
-        tb_log_dir = os.path.join(output_dir, config.experiment.tensorboard.log_dir, config.experiment.name)
+    if tb_log_dir:
         print(f"Run 'tensorboard --logdir {tb_log_dir}' to view training curves.")
     else:
         print("TensorBoard is disabled.")
