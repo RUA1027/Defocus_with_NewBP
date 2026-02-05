@@ -184,7 +184,7 @@ experiment:
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备: "cuda" 或 "cpu"
   epochs: 300                    # 训练轮数 (= stage1 + stage2 + stage3 = 5+200+50)
-  save_interval: 20              # 定期存档间隔 (epochs)
+  save_interval: 3               # 定期存档间隔 (epochs) - 修改为更频繁，防止意外丢失
   log_interval: 1                # 日志间隔 (epochs)
   output_dir: "/root/autodl-nas/Defocus_with_NewBP/experiments"  # 输出目录 (AutoDL 网盘)
   run_name: ""                   # 可选: 固定实验目录名 (留空则使用 name)
