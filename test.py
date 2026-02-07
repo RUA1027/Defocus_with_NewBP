@@ -34,6 +34,45 @@ from utils.metrics import PerformanceEvaluator
 from trainer import DualBranchTrainer
 
 
+def count_params(model):
+    """统计模型参数量"""
+    return sum(p.numel() for p in model.parameters())
+
+
+def compute_model_stats(restoration_net, physical_layer, device, image_height, image_width):
+    """统计 Params 和 FLOPs (如可用)"""
+    stats = {
+        'restoration_params': count_params(restoration_net),
+        'physical_params': count_params(physical_layer) if physical_layer is not None else 0,
+        'restoration_flops': None,
+        'physical_flops': None
+    }
+    stats['total_params'] = stats['restoration_params'] + stats['physical_params']
+
+    try:
+        from thop import profile
+
+        dummy_input = torch.randn(1, 3, image_height, image_width, device=device)
+        with torch.no_grad():
+            restoration_flops, _ = profile(restoration_net, inputs=(dummy_input,), verbose=False)
+            if physical_layer is not None:
+                physical_flops, _ = profile(physical_layer, inputs=(dummy_input,), verbose=False)
+            else:
+                physical_flops = None
+
+        stats['restoration_flops'] = float(restoration_flops)
+        stats['physical_flops'] = float(physical_flops) if physical_flops is not None else None
+    except Exception as exc:
+        print(f"[Warning] FLOPs computation failed: {exc}")
+
+    if stats['restoration_flops'] is not None and stats['physical_flops'] is not None:
+        stats['total_flops'] = stats['restoration_flops'] + stats['physical_flops']
+    else:
+        stats['total_flops'] = None
+
+    return stats
+
+
 def save_comparison_image(blur, sharp_gt, restored, reblur, save_path):
     """
     保存对比图像：模糊输入 | 复原结果 | 真实清晰 | 重模糊
@@ -130,10 +169,35 @@ def main():
     checkpoint = torch.load(args.checkpoint, map_location=device)
     
     restoration_net.load_state_dict(checkpoint['restoration_net'])
-    aberration_net.load_state_dict(checkpoint['aberration_net'])
+    if aberration_net is not None and 'aberration_net' in checkpoint:
+        aberration_net.load_state_dict(checkpoint['aberration_net'])
     
     restoration_net.eval()
-    physical_layer.eval()
+    if physical_layer is not None:
+        physical_layer.eval()
+
+    # 统计模型复杂度
+    print("\nComputing model Params/FLOPs...")
+    model_stats = compute_model_stats(
+        restoration_net,
+        physical_layer,
+        device,
+        config.data.image_height,
+        config.data.image_width
+    )
+    print(
+        f"  Restoration Params: {model_stats['restoration_params']:,} | "
+        f"Physical Params: {model_stats['physical_params']:,} | "
+        f"Total Params: {model_stats['total_params']:,}"
+    )
+    if model_stats['total_flops'] is not None:
+        print(
+            f"  Restoration FLOPs: {model_stats['restoration_flops']:.3e} | "
+            f"Physical FLOPs: {model_stats['physical_flops']:.3e} | "
+            f"Total FLOPs: {model_stats['total_flops']:.3e}"
+        )
+    else:
+        print("  FLOPs: unavailable (thop failed or unsupported ops)")
     
     # 打印检查点信息
     if 'epoch' in checkpoint:
@@ -164,6 +228,7 @@ def main():
     psnr_total = 0.0
     ssim_total = 0.0
     lpips_total = 0.0
+    use_physical_layer = getattr(config.experiment, 'use_physical_layer', True)
     reblur_total = 0.0
     n = 0
     lpips_count = 0
@@ -183,14 +248,17 @@ def main():
             restored = restoration_net(blur)
             
             # 重模糊
-            reblur = physical_layer(restored, crop_info=crop_info)
+            if use_physical_layer and physical_layer is not None:
+                reblur = physical_layer(restored, crop_info=crop_info)
+            else:
+                reblur = None
             
             # 计算指标
             psnr = evaluator._psnr(restored, sharp).item()
             ssim = evaluator._ssim(restored, sharp).item()
             lpips = evaluator._lpips_score(restored, sharp)
             lpips_val = lpips.item() if lpips is not None else float('nan')
-            reblur_mse = torch.nn.functional.mse_loss(reblur, blur).item()
+            reblur_mse = torch.nn.functional.mse_loss(reblur, blur).item() if reblur is not None else float('nan')
             
             # 记录结果
             result = {
@@ -207,7 +275,8 @@ def main():
             if not math.isnan(lpips_val):
                 lpips_total += lpips_val
                 lpips_count += 1
-            reblur_total += reblur_mse
+            if reblur is not None:
+                reblur_total += reblur_mse
             n += 1
             
             # 更新进度条
@@ -217,7 +286,7 @@ def main():
             })
             
             # 保存图像
-            if args.save_images:
+            if args.save_images and reblur is not None:
                 save_path = os.path.join(output_dir, 'comparisons', 
                                          f"{os.path.splitext(filename)[0]}_comparison.png")
                 save_comparison_image(
@@ -234,7 +303,9 @@ def main():
         'PSNR': psnr_total / max(n, 1),
         'SSIM': ssim_total / max(n, 1),
         'LPIPS': lpips_total / lpips_count if lpips_count > 0 else float('nan'),
-        'Reblur_MSE': reblur_total / max(n, 1),
+        'Reblur_MSE': (reblur_total / max(n, 1)) if use_physical_layer else float('nan'),
+        'Params_M': model_stats['total_params'] / 1e6,
+        'FLOPs_G': model_stats['total_flops'] / 1e9 if model_stats['total_flops'] is not None else float('nan'),
         'Num_Images': n
     }
     
@@ -268,6 +339,7 @@ def main():
     with open(results_path, 'w') as f:
         json.dump({
             'average_metrics': avg_metrics,
+            'model_stats': model_stats,
             'per_image_results': results,
             'checkpoint': args.checkpoint,
             'config': args.config

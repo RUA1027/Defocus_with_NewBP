@@ -199,6 +199,7 @@ class ExperimentConfig:
     name: str = "default"
     seed: int = 42
     device: str = "cuda"
+    use_physical_layer: bool = True
     epochs: int = 300  # 总训练轮数 (需与 stage_schedule 总和一致)
     save_interval: int = 20  # 定期存档间隔
     log_interval: int = 1
@@ -462,6 +463,7 @@ def _build_config_from_dict(data: Dict[str, Any]) -> Config:
         name=exp_data.get('name', 'default'),
         seed=exp_data.get('seed', 42),
         device=exp_data.get('device', 'cuda'),
+        use_physical_layer=exp_data.get('use_physical_layer', True),
         epochs=exp_data.get('epochs', 300),
         save_interval=exp_data.get('save_interval', 20),
         log_interval=exp_data.get('log_interval', 1),

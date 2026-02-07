@@ -122,10 +122,12 @@ class PerformanceEvaluator:
                 end = time.perf_counter()
                 return (end - start) * 1000.0 / repeat
 
-    def evaluate(self, restoration_net: nn.Module, physical_layer: nn.Module, val_loader, device: str,
+    def evaluate(self, restoration_net: nn.Module, physical_layer: Optional[nn.Module], val_loader, device: str,
                  smoothness_grid_size: int = 16) -> Dict[str, float]:
         restoration_net.eval()
-        physical_layer.eval()
+        use_physical_layer = physical_layer is not None
+        if use_physical_layer:
+            physical_layer.eval()
 
         psnr_total = 0.0
         ssim_total = 0.0
@@ -163,17 +165,21 @@ class PerformanceEvaluator:
                     lpips_total += lp.item()
                     lpips_count += 1
 
-                y_reblur = physical_layer(x_hat, crop_info=crop_info)
-                reblur_total += F.mse_loss(y_reblur, blur).item()
+                if use_physical_layer:
+                    y_reblur = physical_layer(x_hat, crop_info=crop_info)
+                    reblur_total += F.mse_loss(y_reblur, blur).item()
 
                 n += 1
 
         smoothness = float("nan")
-        if hasattr(physical_layer, "compute_coefficient_smoothness"):
+        if use_physical_layer and hasattr(physical_layer, "compute_coefficient_smoothness"):
             with torch.no_grad():
                 smoothness = physical_layer.compute_coefficient_smoothness(smoothness_grid_size).item()
 
-        params_m = self._count_parameters(restoration_net, physical_layer)
+        if use_physical_layer:
+            params_m = self._count_parameters(restoration_net, physical_layer)
+        else:
+            params_m = self._count_parameters(restoration_net)
         flops_gmacs = self._try_flops(restoration_net, device)
         infer_ms = self._measure_inference_time(restoration_net, device)
 
@@ -181,7 +187,7 @@ class PerformanceEvaluator:
             "PSNR": psnr_total / max(n, 1),
             "SSIM": ssim_total / max(n, 1),
             "LPIPS": (lpips_total / lpips_count) if lpips_count > 0 else float("nan"),
-            "Reblur_MSE": reblur_total / max(n, 1),
+            "Reblur_MSE": (reblur_total / max(n, 1)) if use_physical_layer else float("nan"),
             "PSF_Smoothness": smoothness,
             "Params(M)": params_m,
             "FLOPs(GMACs)": flops_gmacs if flops_gmacs is not None else float("nan"),
@@ -190,7 +196,7 @@ class PerformanceEvaluator:
         return metrics
 
     @staticmethod
-    def evaluate_model(restoration_net: nn.Module, physical_layer: nn.Module, val_loader, device: str,
+    def evaluate_model(restoration_net: nn.Module, physical_layer: Optional[nn.Module], val_loader, device: str,
                        smoothness_grid_size: int = 16) -> Dict[str, float]:
         evaluator = PerformanceEvaluator(device=device)
         return evaluator.evaluate(restoration_net, physical_layer, val_loader, device, smoothness_grid_size)
@@ -245,7 +251,7 @@ class PerformanceEvaluator:
             "PSF_Smoothness": smoothness
         }
 
-    def evaluate_full_resolution(self, restoration_net: nn.Module, physical_layer: nn.Module, 
+    def evaluate_full_resolution(self, restoration_net: nn.Module, physical_layer: Optional[nn.Module], 
                                   test_loader, device: str) -> Tuple[Dict[str, float], list]:
         """
         全分辨率测试集评估（用于论文最终结果）
@@ -260,7 +266,9 @@ class PerformanceEvaluator:
             tuple: (平均指标字典, 每张图像的详细结果列表)
         """
         restoration_net.eval()
-        physical_layer.eval()
+        use_physical_layer = physical_layer is not None
+        if use_physical_layer:
+            physical_layer.eval()
         
         results = []
         
@@ -298,8 +306,11 @@ class PerformanceEvaluator:
                 lpips_val = lp.item() if lp is not None else float("nan")
                 
                 # 重模糊误差
-                y_reblur = physical_layer(x_hat, crop_info=crop_info)
-                reblur_mse = F.mse_loss(y_reblur, blur).item()
+                if use_physical_layer:
+                    y_reblur = physical_layer(x_hat, crop_info=crop_info)
+                    reblur_mse = F.mse_loss(y_reblur, blur).item()
+                else:
+                    reblur_mse = float("nan")
                 
                 # 记录单张图像结果
                 results.append({
@@ -315,14 +326,15 @@ class PerformanceEvaluator:
                 if not math.isnan(lpips_val):
                     lpips_total += lpips_val
                     lpips_count += 1
-                reblur_total += reblur_mse
+                if use_physical_layer:
+                    reblur_total += reblur_mse
                 n += 1
         
         avg_metrics = {
             "PSNR": psnr_total / max(n, 1),
             "SSIM": ssim_total / max(n, 1),
             "LPIPS": (lpips_total / lpips_count) if lpips_count > 0 else float("nan"),
-            "Reblur_MSE": reblur_total / max(n, 1),
+            "Reblur_MSE": (reblur_total / max(n, 1)) if use_physical_layer else float("nan"),
             "Num_Images": n
         }
         

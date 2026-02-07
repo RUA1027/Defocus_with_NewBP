@@ -14,7 +14,7 @@ try:
 except ImportError:
     try:
         # 回退到标准导入方式
-        from torch.utils.tensorboard import SummaryWriter as _SummaryWriter
+        from torch.utils.tensorboard import SummaryWriter as _SummaryWriter  # type: ignore[attr-defined]
         SummaryWriter = _SummaryWriter
         TENSORBOARD_AVAILABLE = True
     except ImportError:
@@ -85,7 +85,7 @@ class DualBranchTrainer:
     - Stage 3 学习率自动减半
     """
 
-    VALID_STAGES = ('physics_only', 'restoration_fixed_physics', 'joint')
+    VALID_STAGES = ('physics_only', 'restoration_fixed_physics', 'joint', 'restoration_only')
 
     def __init__(self,
                  restoration_net,
@@ -110,10 +110,11 @@ class DualBranchTrainer:
 
         self.device = device
         self.restoration_net = restoration_net.to(device)
-        self.physical_layer = physical_layer.to(device)
+        self.physical_layer = physical_layer.to(device) if physical_layer is not None else None
+        self.use_physical_layer = self.physical_layer is not None
 
         # Access internals for regularization
-        self.aberration_net = physical_layer.aberration_net
+        self.aberration_net = self.physical_layer.aberration_net if self.physical_layer is not None else None
 
         # 保存原始学习率用于 Stage 3 减半
         self.base_lr_restoration = lr_restoration
@@ -129,7 +130,9 @@ class DualBranchTrainer:
             raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
 
         self.optimizer_W = optimizer_cls(self.restoration_net.parameters(), lr=lr_restoration, weight_decay=weight_decay)
-        self.optimizer_Theta = optimizer_cls(self.aberration_net.parameters(), lr=lr_optics, weight_decay=weight_decay)
+        self.optimizer_Theta = None
+        if self.aberration_net is not None:
+            self.optimizer_Theta = optimizer_cls(self.aberration_net.parameters(), lr=lr_optics, weight_decay=weight_decay)
 
         # 兼容旧配置（已弃用的固定权重，仅保留字段）
         self.lambda_sup = lambda_sup
@@ -163,7 +166,7 @@ class DualBranchTrainer:
         self.criterion_l1 = nn.L1Loss()
 
         # 当前训练阶段
-        self._current_stage = 'joint'
+        self._current_stage = 'joint' if self.use_physical_layer else 'restoration_only'
         self._previous_stage = None  # 用于检测阶段切换
         self._stage3_lr_halved = False  # 标记 Stage 3 学习率是否已减半
         self._forced_stage = None  # 强制阶段 (用于熔断阻断切换)
@@ -195,7 +198,8 @@ class DualBranchTrainer:
         self.best_metrics = {
             'physics_only': {'reblur_mse': float('inf')},
             'restoration_fixed_physics': {'psnr': 0.0, 'ssim': 0.0},
-            'joint': {'psnr': 0.0, 'combined': 0.0}
+            'joint': {'psnr': 0.0, 'combined': 0.0},
+            'restoration_only': {'psnr': 0.0}
         }
 
     # =========================================================================
@@ -203,6 +207,8 @@ class DualBranchTrainer:
     # =========================================================================
     def _get_stage(self, epoch: int) -> str:
         """根据 epoch(0-indexed) 获取当前阶段"""
+        if not self.use_physical_layer:
+            return 'restoration_only'
         if isinstance(self.stage_schedule, Mapping):
             s1 = self.stage_schedule.get('stage1_epochs', 50)
             s2 = self.stage_schedule.get('stage2_epochs', 200)
@@ -218,6 +224,8 @@ class DualBranchTrainer:
 
     def _adjust_learning_rate_for_stage3(self):
         """Stage 3 学习率减半"""
+        if not self.use_physical_layer:
+            return
         if self._stage3_lr_halved:
             return  # 已经调整过
         
@@ -226,8 +234,9 @@ class DualBranchTrainer:
         
         for param_group in self.optimizer_W.param_groups:
             param_group['lr'] = new_lr_W
-        for param_group in self.optimizer_Theta.param_groups:
-            param_group['lr'] = new_lr_Theta
+        if self.optimizer_Theta is not None:
+            for param_group in self.optimizer_Theta.param_groups:
+                param_group['lr'] = new_lr_Theta
         
         self._stage3_lr_halved = True
         print(f"[Stage 3] Learning rate halved: lr_restoration={new_lr_W:.2e}, lr_optics={new_lr_Theta:.2e}")
@@ -244,6 +253,8 @@ class DualBranchTrainer:
         Returns:
             bool: True 表示可以切换，False 表示熔断（不允许切换）
         """
+        if not self.use_physical_layer:
+            return True
         if not self.circuit_breaker_config.get('enabled', False):
             return True  # 熔断机制未启用，允许切换
         
@@ -342,6 +353,13 @@ class DualBranchTrainer:
                 is_best['combined'] = True
             else:
                 is_best['combined'] = False
+        elif stage == 'restoration_only':
+            psnr = val_metrics.get('PSNR', val_metrics.get('psnr', 0.0))
+            if psnr > self.best_metrics.get('restoration_only', {}).get('psnr', 0.0):
+                self.best_metrics.setdefault('restoration_only', {})['psnr'] = psnr
+                is_best['psnr'] = True
+            else:
+                is_best['psnr'] = False
         
         return is_best
 
@@ -365,9 +383,10 @@ class DualBranchTrainer:
                 self.writer.add_histogram(f'gradients/restoration/{name}', param.grad, epoch)
         
         # 记录像差网络梯度
-        for name, param in self.aberration_net.named_parameters():
-            if param.grad is not None:
-                self.writer.add_histogram(f'gradients/aberration/{name}', param.grad, epoch)
+        if self.aberration_net is not None:
+            for name, param in self.aberration_net.named_parameters():
+                if param.grad is not None:
+                    self.writer.add_histogram(f'gradients/aberration/{name}', param.grad, epoch)
     
     def log_images_to_tensorboard(self, blur_img, sharp_img, restored_img, reblur_img, epoch: int):
         """记录图像到 TensorBoard"""
@@ -378,7 +397,8 @@ class DualBranchTrainer:
         self.writer.add_image('images/blur', blur_img[0].clamp(0, 1), epoch)
         self.writer.add_image('images/sharp_gt', sharp_img[0].clamp(0, 1), epoch)
         self.writer.add_image('images/restored', restored_img[0].clamp(0, 1), epoch)
-        self.writer.add_image('images/reblur', reblur_img[0].clamp(0, 1), epoch)
+        if reblur_img is not None:
+            self.writer.add_image('images/reblur', reblur_img[0].clamp(0, 1), epoch)
     
     def close_tensorboard(self):
         """关闭 TensorBoard writer"""
@@ -428,6 +448,14 @@ class DualBranchTrainer:
                 'w_coeff': self.lambda_coeff * 0.2, 
                 'w_img_reg': self.lambda_image_reg * 0.1
             })
+        elif stage == 'restoration_only':
+            weights.update({
+                'w_data': 0.0,
+                'w_sup': 1.0,
+                'w_smooth': 0.0,
+                'w_coeff': 0.0,
+                'w_img_reg': self.lambda_image_reg
+            })
 
         return weights
 
@@ -436,24 +464,34 @@ class DualBranchTrainer:
         if stage == 'physics_only':
             for p in self.restoration_net.parameters():
                 p.requires_grad = False
-            for p in self.aberration_net.parameters():
-                p.requires_grad = True
+            if self.aberration_net is not None:
+                for p in self.aberration_net.parameters():
+                    p.requires_grad = True
             self.restoration_net.eval()
-            self.physical_layer.train()
+            if self.physical_layer is not None:
+                self.physical_layer.train()
         elif stage == 'restoration_fixed_physics':
             for p in self.restoration_net.parameters():
                 p.requires_grad = True
-            for p in self.aberration_net.parameters():
-                p.requires_grad = False
+            if self.aberration_net is not None:
+                for p in self.aberration_net.parameters():
+                    p.requires_grad = False
             self.restoration_net.train()
-            self.physical_layer.eval()
+            if self.physical_layer is not None:
+                self.physical_layer.eval()
         elif stage == 'joint':
             for p in self.restoration_net.parameters():
                 p.requires_grad = True
-            for p in self.aberration_net.parameters():
+            if self.aberration_net is not None:
+                for p in self.aberration_net.parameters():
+                    p.requires_grad = True
+            self.restoration_net.train()
+            if self.physical_layer is not None:
+                self.physical_layer.train()
+        elif stage == 'restoration_only':
+            for p in self.restoration_net.parameters():
                 p.requires_grad = True
             self.restoration_net.train()
-            self.physical_layer.train()
         else:
             raise ValueError(f"Invalid stage '{stage}'. Must be one of {self.VALID_STAGES}")
 
@@ -518,13 +556,17 @@ class DualBranchTrainer:
 
         # 梯度累积：仅在第一个累积步骤清除梯度
         if self.accumulation_counter == 0:
-            if current_stage == 'physics_only':
-                self.optimizer_Theta.zero_grad()
+            if not self.use_physical_layer:
+                self.optimizer_W.zero_grad()
+            elif current_stage == 'physics_only':
+                if self.optimizer_Theta is not None:
+                    self.optimizer_Theta.zero_grad()
             elif current_stage == 'restoration_fixed_physics':
                 self.optimizer_W.zero_grad()
             else:
                 self.optimizer_W.zero_grad()
-                self.optimizer_Theta.zero_grad()
+                if self.optimizer_Theta is not None:
+                    self.optimizer_Theta.zero_grad()
 
         # ========================== Forward & Loss ===========================
         loss_data = torch.tensor(0.0, device=self.device)
@@ -533,8 +575,14 @@ class DualBranchTrainer:
         loss_smooth = torch.tensor(0.0, device=self.device)
         loss_image_reg = torch.tensor(0.0, device=self.device)
 
-        # Stage 1: 仅物理层
-        if current_stage == 'physics_only':
+        if not self.use_physical_layer:
+            X_hat = self.restoration_net(Y_blur)
+            loss_sup = self.criterion_l1(X_hat, X_gt)
+            if w_img_reg > 0:
+                loss_image_reg = self.compute_image_tv_loss(X_hat)
+        elif current_stage == 'physics_only':
+            if self.physical_layer is None or self.aberration_net is None:
+                raise RuntimeError("physical_layer and aberration_net are required for physics_only stage")
             Y_reblur = self.physical_layer(X_gt, crop_info=crop_info)
             loss_data = self.criterion_mse(Y_reblur, Y_blur)
 
@@ -550,9 +598,9 @@ class DualBranchTrainer:
                     loss_coeff = torch.mean(coeffs**2)
                 if w_smooth > 0:
                     loss_smooth = self.physical_layer.compute_coefficient_smoothness(self.smoothness_grid_size)
-
-        # Stage 2/3: 复原网络参与
         else:
+            if self.physical_layer is None or self.aberration_net is None:
+                raise RuntimeError("physical_layer and aberration_net are required for this stage")
             X_hat = self.restoration_net(Y_blur)
             Y_reblur = self.physical_layer(X_hat, crop_info=crop_info)
             loss_data = self.criterion_mse(Y_reblur, Y_blur)
@@ -594,17 +642,26 @@ class DualBranchTrainer:
         gn_Theta = torch.tensor(0.0, device=self.device)
 
         if should_step:
-            if current_stage == 'physics_only':
+            if not self.use_physical_layer:
+                gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), self.grad_clip_restoration)
+                self.optimizer_W.step()
+            elif current_stage == 'physics_only':
+                if self.aberration_net is None:
+                    raise RuntimeError("aberration_net is required for physics_only stage")
                 gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), self.grad_clip_optics)
-                self.optimizer_Theta.step()
+                if self.optimizer_Theta is not None:
+                    self.optimizer_Theta.step()
             elif current_stage == 'restoration_fixed_physics':
                 gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), self.grad_clip_restoration)
                 self.optimizer_W.step()
             else:
+                if self.aberration_net is None:
+                    raise RuntimeError("aberration_net is required for joint stage")
                 gn_W = nn.utils.clip_grad_norm_(self.restoration_net.parameters(), self.grad_clip_restoration)
                 gn_Theta = nn.utils.clip_grad_norm_(self.aberration_net.parameters(), self.grad_clip_optics)
                 self.optimizer_W.step()
-                self.optimizer_Theta.step()
+                if self.optimizer_Theta is not None:
+                    self.optimizer_Theta.step()
 
             self.accumulation_counter = 0
 
@@ -652,11 +709,13 @@ class DualBranchTrainer:
         """
         checkpoint = {
             'restoration_net': self.restoration_net.state_dict(),
-            'aberration_net': self.aberration_net.state_dict(),
             'optimizer_W': self.optimizer_W.state_dict(),
-            'optimizer_Theta': self.optimizer_Theta.state_dict(),
             'best_metrics': self.best_metrics,
         }
+        if self.aberration_net is not None:
+            checkpoint['aberration_net'] = self.aberration_net.state_dict()
+        if self.optimizer_Theta is not None:
+            checkpoint['optimizer_Theta'] = self.optimizer_Theta.state_dict()
         
         if epoch is not None:
             checkpoint['epoch'] = epoch
@@ -681,12 +740,13 @@ class DualBranchTrainer:
         checkpoint = torch.load(path, map_location=self.device)
         
         self.restoration_net.load_state_dict(checkpoint['restoration_net'])
-        self.aberration_net.load_state_dict(checkpoint['aberration_net'])
+        if self.aberration_net is not None and 'aberration_net' in checkpoint:
+            self.aberration_net.load_state_dict(checkpoint['aberration_net'])
         
         if load_optimizer:
             if 'optimizer_W' in checkpoint:
                 self.optimizer_W.load_state_dict(checkpoint['optimizer_W'])
-            if 'optimizer_Theta' in checkpoint:
+            if self.optimizer_Theta is not None and 'optimizer_Theta' in checkpoint:
                 self.optimizer_Theta.load_state_dict(checkpoint['optimizer_Theta'])
         
         if 'best_metrics' in checkpoint:
@@ -700,7 +760,10 @@ class DualBranchTrainer:
     
     def get_current_lr(self) -> Dict[str, float]:
         """获取当前学习率"""
+        lr_optics = float('nan')
+        if self.optimizer_Theta is not None:
+            lr_optics = self.optimizer_Theta.param_groups[0]['lr']
         return {
             'lr_restoration': self.optimizer_W.param_groups[0]['lr'],
-            'lr_optics': self.optimizer_Theta.param_groups[0]['lr']
+            'lr_optics': lr_optics
         }

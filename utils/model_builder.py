@@ -22,33 +22,40 @@ def build_models_from_config(config: Config, device: str):
         tuple: (zernike_gen, aberration_net, restoration_net, physical_layer)
     """
     
-    # 1. Zernike 生成器
-    zernike_gen = DifferentiableZernikeGenerator(
-        n_modes=config.physics.n_modes,
-        pupil_size=config.physics.pupil_size,
-        kernel_size=config.physics.kernel_size,
-        oversample_factor=config.physics.oversample_factor,
-        wavelengths=config.physics.wavelengths,
-        ref_wavelength=config.physics.ref_wavelength,
-        device=device
-    )
-    
-    # 2. 像差预测网络
-    if config.aberration_net.type == "polynomial":
-        aberration_net = PolynomialAberrationNet(
-            n_coeffs=config.aberration_net.n_coeffs,
-            degree=config.aberration_net.polynomial.degree,
-            a_max=config.aberration_net.a_max
-        ).to(device)
-        print(f"  ├─ 像差网络: PolynomialAberrationNet (degree={config.aberration_net.polynomial.degree})")
-    else:
-        aberration_net = AberrationNet(
-            num_coeffs=config.aberration_net.n_coeffs,
-            hidden_dim=config.aberration_net.mlp.hidden_dim,
-            a_max=config.aberration_net.mlp.a_max_mlp,
-            use_fourier=config.aberration_net.mlp.use_fourier
-        ).to(device)
-        print(f"  ├─ 像差网络: AberrationNet (hidden_dim={config.aberration_net.mlp.hidden_dim})")
+    use_physical_layer = getattr(config.experiment, "use_physical_layer", True)
+
+    zernike_gen = None
+    aberration_net = None
+    physical_layer = None
+
+    if use_physical_layer:
+        # 1. Zernike 生成器
+        zernike_gen = DifferentiableZernikeGenerator(
+            n_modes=config.physics.n_modes,
+            pupil_size=config.physics.pupil_size,
+            kernel_size=config.physics.kernel_size,
+            oversample_factor=config.physics.oversample_factor,
+            wavelengths=config.physics.wavelengths,
+            ref_wavelength=config.physics.ref_wavelength,
+            device=device
+        )
+        
+        # 2. 像差预测网络
+        if config.aberration_net.type == "polynomial":
+            aberration_net = PolynomialAberrationNet(
+                n_coeffs=config.aberration_net.n_coeffs,
+                degree=config.aberration_net.polynomial.degree,
+                a_max=config.aberration_net.a_max
+            ).to(device)
+            print(f"  ├─ 像差网络: PolynomialAberrationNet (degree={config.aberration_net.polynomial.degree})")
+        else:
+            aberration_net = AberrationNet(
+                num_coeffs=config.aberration_net.n_coeffs,
+                hidden_dim=config.aberration_net.mlp.hidden_dim,
+                a_max=config.aberration_net.mlp.a_max_mlp,
+                use_fourier=config.aberration_net.mlp.use_fourier
+            ).to(device)
+            print(f"  ├─ 像差网络: AberrationNet (hidden_dim={config.aberration_net.mlp.hidden_dim})")
     
     # 3. 图像复原网络
     restoration_net = RestorationNet(
@@ -61,16 +68,19 @@ def build_models_from_config(config: Config, device: str):
     print(f"  ├─ 复原网络: RestorationNet (base_filters={config.restoration_net.base_filters}, use_coords={config.restoration_net.use_coords})")
     
     # 4. 物理卷积层
-    physical_layer = SpatiallyVaryingPhysicalLayer(
-        aberration_net=aberration_net,
-        zernike_generator=zernike_gen,
-        patch_size=config.ola.patch_size,
-        stride=config.ola.stride,
-        pad_to_power_2=config.ola.pad_to_power_2,
-        use_newbp=config.ola.use_newbp
-    ).to(device)
-    name_algo = "NewBP" if config.ola.use_newbp else "Standard"
-    print(f"  └─ 物理层: OLA (patch={config.ola.patch_size}, stride={config.ola.stride}, algo={name_algo})")
+    if use_physical_layer:
+        physical_layer = SpatiallyVaryingPhysicalLayer(
+            aberration_net=aberration_net,
+            zernike_generator=zernike_gen,
+            patch_size=config.ola.patch_size,
+            stride=config.ola.stride,
+            pad_to_power_2=config.ola.pad_to_power_2,
+            use_newbp=config.ola.use_newbp
+        ).to(device)
+        name_algo = "NewBP" if config.ola.use_newbp else "Standard"
+        print(f"  └─ 物理层: OLA (patch={config.ola.patch_size}, stride={config.ola.stride}, algo={name_algo})")
+    else:
+        print("  └─ 物理层: disabled")
     
     return zernike_gen, aberration_net, restoration_net, physical_layer
 

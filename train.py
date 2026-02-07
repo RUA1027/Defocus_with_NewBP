@@ -38,7 +38,8 @@ def print_stage_info(stage: str, epoch: int, total_epochs: int):
     stage_names = {
         'physics_only': 'Stage 1: Physics Only (物理层训练)',
         'restoration_fixed_physics': 'Stage 2: Restoration with Fixed Physics (复原网络训练)',
-        'joint': 'Stage 3: Joint Fine-tuning (联合微调, 学习率减半)'
+        'joint': 'Stage 3: Joint Fine-tuning (联合微调, 学习率减半)',
+        'restoration_only': 'Restoration Only (无物理层)'
     }
     stage_name = stage_names.get(stage, stage)
     print(f"\n{'='*60}")
@@ -76,15 +77,20 @@ def main():
     print(f"Device: {device}")
     print(f"Seed: {config.experiment.seed}")
     
-    s1 = config.training.stage_schedule.stage1_epochs
-    s2 = config.training.stage_schedule.stage2_epochs
-    s3 = config.training.stage_schedule.stage3_epochs
-    schedule_total = s1 + s2 + s3
-    if config.experiment.epochs != schedule_total:
-        raise ValueError(
-            "config.experiment.epochs must match the sum of training.stage_schedule "
-            f"(epochs={config.experiment.epochs}, schedule_total={schedule_total})."
-        )
+    use_physical_layer = getattr(config.experiment, 'use_physical_layer', True)
+    s1 = 0
+    s2 = 0
+    s3 = 0
+    if use_physical_layer:
+        s1 = config.training.stage_schedule.stage1_epochs
+        s2 = config.training.stage_schedule.stage2_epochs
+        s3 = config.training.stage_schedule.stage3_epochs
+        schedule_total = s1 + s2 + s3
+        if config.experiment.epochs != schedule_total:
+            raise ValueError(
+                "config.experiment.epochs must match the sum of training.stage_schedule "
+                f"(epochs={config.experiment.epochs}, schedule_total={schedule_total})."
+            )
 
     # 创建输出目录
     base_output_dir = Path(config.experiment.output_dir)
@@ -164,10 +170,13 @@ def main():
     
     # 打印训练计划
     print(f"\n训练计划:")
-    print(f"  Stage 1 (Physics Only):        Epochs 1-{s1}")
-    print(f"  Stage 2 (Restoration):         Epochs {s1+1}-{s1+s2}")
-    print(f"  Stage 3 (Joint, LR halved):    Epochs {s1+s2+1}-{s1+s2+s3}")
-    print(f"  Total: {s1+s2+s3} epochs")
+    if use_physical_layer:
+        print(f"  Stage 1 (Physics Only):        Epochs 1-{s1}")
+        print(f"  Stage 2 (Restoration):         Epochs {s1+1}-{s1+s2}")
+        print(f"  Stage 3 (Joint, LR halved):    Epochs {s1+s2+1}-{s1+s2+s3}")
+        print(f"  Total: {s1+s2+s3} epochs")
+    else:
+        print(f"  Restoration Only:              Epochs 1-{config.experiment.epochs}")
     
     # 6. 恢复训练
     start_epoch = 0
@@ -188,7 +197,7 @@ def main():
     prev_stage = None
     
     # 初始化变量以防止静态分析错误
-    stage = 'physics_only'
+    stage = 'physics_only' if use_physical_layer else 'restoration_only'
     val_metrics: Dict[str, Any] = {}
 
     # 创建评估器
@@ -205,9 +214,11 @@ def main():
             print_stage_info(stage, current_epoch, epochs)
             
             # 熔断机制检查（在阶段切换时）
-            if prev_stage is not None:
+            if prev_stage is not None and use_physical_layer:
                 # 先评估当前验证指标
                 if prev_stage == 'physics_only':
+                    if trainer.physical_layer is None:
+                        raise RuntimeError("physical_layer is required for physics_only evaluation")
                     val_metrics = PerformanceEvaluator.evaluate_stage1(
                         trainer.physical_layer, val_loader, device,
                         config.training.smoothness_grid_size
@@ -285,6 +296,8 @@ def main():
         
         if stage == 'physics_only':
             # Stage 1: 专用评估（重模糊一致性）
+            if trainer.physical_layer is None:
+                raise RuntimeError("physical_layer is required for physics_only evaluation")
             val_metrics = PerformanceEvaluator.evaluate_stage1(
                 trainer.physical_layer, val_loader, device,
                 config.training.smoothness_grid_size
@@ -345,6 +358,10 @@ def main():
             best_path = os.path.join(checkpoints_dir, "best_stage3_joint.pt")
             trainer.save_checkpoint(best_path, epoch=current_epoch, stage=stage, val_metrics=val_metrics)
             print(f"  ✓ New best Stage 3 model saved: PSNR={val_metrics.get('PSNR', 0):.2f}")
+        elif stage == 'restoration_only' and is_best.get('psnr', False):
+            best_path = os.path.join(checkpoints_dir, "best_restoration_only.pt")
+            trainer.save_checkpoint(best_path, epoch=current_epoch, stage=stage, val_metrics=val_metrics)
+            print(f"  ✓ New best restoration-only model saved: PSNR={val_metrics.get('PSNR', 0):.2f}")
 
         # --- Periodic Checkpointing (定期存档，每 20 个 epoch) ---
         if current_epoch % save_interval == 0:
@@ -365,9 +382,12 @@ def main():
     print("Training Finished!")
     print("="*60)
     print(f"\nBest metrics achieved:")
-    print(f"  Stage 1 (Physics): Reblur_MSE = {trainer.best_metrics['physics_only']['reblur_mse']:.6f}")
-    print(f"  Stage 2 (Restoration): PSNR = {trainer.best_metrics['restoration_fixed_physics']['psnr']:.2f}")
-    print(f"  Stage 3 (Joint): PSNR = {trainer.best_metrics['joint']['psnr']:.2f}")
+    if use_physical_layer:
+        print(f"  Stage 1 (Physics): Reblur_MSE = {trainer.best_metrics['physics_only']['reblur_mse']:.6f}")
+        print(f"  Stage 2 (Restoration): PSNR = {trainer.best_metrics['restoration_fixed_physics']['psnr']:.2f}")
+        print(f"  Stage 3 (Joint): PSNR = {trainer.best_metrics['joint']['psnr']:.2f}")
+    else:
+        print(f"  Restoration Only: PSNR = {trainer.best_metrics['restoration_only']['psnr']:.2f}")
     print(f"\nOutput directory: {output_dir}")
     if tb_log_dir:
         print(f"Run 'tensorboard --logdir {tb_log_dir}' to view training curves.")
