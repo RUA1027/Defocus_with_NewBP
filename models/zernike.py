@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.fft
 import torch.nn.functional as F
 import numpy as np
+import math
 '''
 Zernike 系数 (从 AberrationNet)
     [B*N, 15]
@@ -56,79 +57,99 @@ Zernike 系数 (从 AberrationNet)
 '''
 def noll_to_nm(j):
     """
-    索引转换
-    Map Noll index j to radial order n and azimuthal frequency m.
-    Based on standard Noll numbering sequence.
+    索引转换: Noll index j -> (n, m)
+    通用实现，支持任意高阶 Noll 索引。
+    
+    参考: Noll, R. J. (1976). "Zernike polynomials and atmospheric turbulence."
+    
+    j=1:  (0,0)   Piston
+    j=2:  (1,1)   Tilt-X          j=3:  (1,-1)  Tilt-Y
+    j=4:  (2,0)   Defocus
+    j=5:  (2,-2)  Astigmatism     j=6:  (2,2)   Astigmatism
+    j=7:  (3,-1)  Coma            j=8:  (3,1)   Coma
+    j=9:  (3,-3)  Trefoil         j=10: (3,3)   Trefoil
+    j=11: (4,0)   Spherical
+    ...以此类推到任意高阶...
     """
-    if j == 1: return 0, 0
+    if j < 1:
+        raise ValueError(f"Noll index must be >= 1, got {j}")
     
-    # Solve for n: j = n(n+1)/2 + |m| + ... roughly
-    # A bit complex to inverse analytically for all cases, using a lookup for common range
-    # and a loop for general case is safer.
+    # 计算径向阶数 n: 满足 n(n+1)/2 < j <= (n+1)(n+2)/2
+    n = int((-1.0 + (8.0 * j - 7) ** 0.5) / 2.0)
+    if (n + 1) * (n + 2) // 2 < j:
+        n += 1
     
-    # For j=1..15 lookup table:
-    # 索引 1-15 对应最常见的 15 种像差
-    # j: (n, m)
-    mapping = {
-        1: (0, 0),
-        2: (1, 1), 3: (1, -1),
-        4: (2, 0),
-        5: (2, -2), 6: (2, 2),
-        7: (3, -1), 8: (3, 1),
-        9: (3, -3), 10: (3, 3),
-        11: (4, 0),
-        12: (4, 2), 13: (4, -2), # Note: j=13 is usually 4,-2 (sin)
-        14: (4, 4), 15: (4, -4)
-    }
-    '''
-a₁: Piston (活塞)          - 全局亮度偏移
-a₂-a₃: Tilt (倾斜)         - 光束方向偏移
-a₄: Defocus (离焦)         - 焦点偏移 ✓ 最常见
-a₅-a₆: Astigmatism (像散)  - 两个方向焦距不同
-a₇-a₈: Coma (彗差)        - 非对称模糊
-a₉-a₁₀: Trefoil (三叶)    - 三重对称失真
-a₁₁: Spherical (球差)      - 球形透镜失差
-a₁₂-a₁₃: Secondary Astig   - 高阶像散
-a₁₄-a₁₅: Quadrafoil       - 四重对称失真
-    '''
-    if j in mapping:
-        return mapping[j]
-        
-    raise NotImplementedError(f"Noll index {j} not implemented in lookup yet.")
+    # 计算 |m|
+    # 在第 n 阶内的余数
+    k = j - n * (n + 1) // 2  # 1-indexed
+    
+    # n 阶内 |m| 的排列: 按照 Noll 约定
+    # 对于偶数 n: m 可取 0, ±2, ±4, ..., ±n
+    # 对于奇数 n: m 可取 ±1, ±3, ±5, ..., ±n
+    # k=1 对应最小的 |m|
+    
+    # |m| 从 n%2 开始，步长 2:  n%2, n%2+2, n%2+4, …
+    # k=1 -> |m|=n%2; k=2,3 -> |m|=n%2+2; k=4,5 -> |m|=n%2+4; ...
+    # 但 |m|=0 只占 1 个位置，|m|>0 占 2 个位置
+    
+    if n % 2 == 0:
+        # m=0 占 k=1; |m|=2 占 k=2,3; |m|=4 占 k=4,5; ...
+        if k == 1:
+            m = 0
+        else:
+            abs_m = 2 * ((k - 2) // 2 + 1)
+            if j % 2 == 0:
+                m = abs_m
+            else:
+                m = -abs_m
+    else:
+        # m=1 占 k=1,2; m=3 占 k=3,4; m=5 占 k=5,6; ...
+        abs_m = 2 * ((k - 1) // 2) + 1
+        if j % 2 == 0:
+            m = abs_m
+        else:
+            m = -abs_m
+    
+    return (n, m)
 
 def zernike_radial(n, m, rho):
     """
     Compute Radial Zernike Polynomial R_n^|m|(rho).
-    Using explicit formulas for low orders or recursion would be better.
-    Here we implement explicit polynomials for n<=4 to cover Z1-Z15.
+    通用实现，基于解析公式支持任意阶数。
+    
+    R_n^m(ρ) = Σ_{s=0}^{(n-m)/2} (-1)^s * (n-s)! / (s! * ((n+m)/2 - s)! * ((n-m)/2 - s)!) * ρ^(n-2s)
     """
     m = abs(m)
-    if n == 0 and m == 0:
-        return torch.ones_like(rho)
-    if n == 1 and m == 1:
-        return rho
-    if n == 2 and m == 0:
-        return 2 * rho**2 - 1
-    if n == 2 and m == 2:
-        return rho**2
-    if n == 3 and m == 1:
-        return 3 * rho**3 - 2 * rho
-    if n == 3 and m == 3:
-        return rho**3
-    if n == 4 and m == 0:
-        return 6 * rho**4 - 6 * rho**2 + 1
-    if n == 4 and m == 2:
-        return 4 * rho**4 - 3 * rho**2
-    if n == 4 and m == 4:
-        return rho**4
-        
-    # Validation/Fallback
-    return torch.zeros_like(rho)
+    
+    if (n - m) % 2 != 0:
+        return torch.zeros_like(rho)
+    
+    result = torch.zeros_like(rho)
+    
+    for s in range((n - m) // 2 + 1):
+        coeff = (
+            ((-1) ** s) * math.factorial(n - s)
+            / (
+                math.factorial(s)
+                * math.factorial((n + m) // 2 - s)
+                * math.factorial((n - m) // 2 - s)
+            )
+        )
+        result = result + coeff * rho ** (n - 2 * s)
+    
+    return result
 
 class ZernikeBasis(nn.Module):
     """
     Precomputes and stores Zernike basis functions on a grid.
-    提前计算所有 15 个 Zernike 基函数在空间网格上的值，避免重复计算。
+    预计算所有 n_modes 个 Zernike 基函数在空间网格上的值，避免重复计算。
+    
+    归一化约定 (Noll RMS=1):
+      m=0:  norm = √(n+1)
+      m≠0:  norm = √(2(n+1))
+    角向函数:
+      偶数 j → cos(|m|θ)  (正 m 分量)
+      奇数 j → sin(|m|θ)  (负 m 分量)
     """
     def __init__(self, n_modes=15, grid_size=64, device='cpu'):
         super().__init__()

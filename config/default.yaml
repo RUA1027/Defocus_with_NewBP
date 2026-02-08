@@ -8,9 +8,11 @@
 # -----------------------------------------------------------------------------
 physics:
   # Zernike 多项式相关
-  n_modes: 15                    # Zernike 模式数量 (Noll 1-15 -> 21)
-  pupil_size: 64                # 光瞳计算网格大小 (128 for High Res)
-  kernel_size: 31                # PSF 卷积核大小 (65 for Large PSF)
+  # 扩充 Zernike 模式，覆盖到 8 阶像差
+  # 原值: 15 (覆盖到 4 阶), 新值: 36 (包含二级慧差、三级球差等)
+  n_modes: 36                    # Zernike 模式数量 (Noll 1-36)
+  pupil_size: 65                 # 光石计算网格大小 (128 for High Res)
+  kernel_size: 33                # PSF 卷积核大小 (高阶像差 PSF 更弥散，稍微增大)
   oversample_factor: 2           # FFT 过采样因子
   
   # 波长配置 (单位: 米)
@@ -34,7 +36,8 @@ ola:
 # -----------------------------------------------------------------------------
 aberration_net:
   # 通用参数
-  n_coeffs: 15                   # 输出 Zernike 系数数量 (与 physics.n_modes 保持一致)
+  # 必须与 physics.n_modes 保持一致
+  n_coeffs: 36                   # 输出 Zernike 系数数量
   a_max: 1.5                     # 系数约束范围 [-a_max, a_max]
   
   # 网络类型: "polynomial" 或 "mlp"
@@ -47,7 +50,9 @@ aberration_net:
   # AberrationNet (MLP) 专用参数
   # 输入坐标 (x,y)->傅里叶特征编码->4层全连接网络->Tanh 物理约束->Zernike 系数
   mlp:
-    hidden_dim: 256              # 隐层维度
+    # 扩大网络容量，更好地拟合 1680x1120 分辨率下的复杂空间变化
+    # 原值: 256, 新值: 512 (参数量增加约 4 倍)
+    hidden_dim: 512              # 隐层维度
     use_fourier: true            # 是否使用傅里叶特征编码
     # 将 2 维坐标映射到高维空间,用 Fourier Encoding 解决坐标输入的频谱缺陷.
     fourier_scale: 5             # 傅里叶特征缩放因子
@@ -174,7 +179,7 @@ visualization:
   # 系数分布可视化
   coeff_maps:
     grid_size: 128               # 采样密度
-    indices: [3, 4, 5, 6]        # 显示的 Zernike 索引 (Noll 4-7)
+    indices: [3, 4, 5, 6, 11, 22]  # 显示的 Zernike 索引 (Tilt, Defocus, Astig, Spherical-4th, Spherical-6th)
     colormap: "viridis"          # 颜色映射
 
 # -----------------------------------------------------------------------------

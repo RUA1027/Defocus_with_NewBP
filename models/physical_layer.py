@@ -180,6 +180,13 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
         self.pad_to_power_2 = pad_to_power_2
         self.use_newbp = use_newbp
         
+        # 可学习的 Gamma 参数
+        # 物理卷积必须在线性光域进行，sRGB 图像需要先反 Gamma 变换
+        # 初始化为 2.2 (标准 sRGB)，允许网络根据数据集微调
+        self.gamma = nn.Parameter(torch.tensor(2.2))
+        # 数值稳定性常数，防止 pow() 求导出现 NaN
+        self.epsilon = 1e-6
+        
         # Precompute window
         # Hann window 2D
         '''
@@ -319,6 +326,10 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
         P = self.patch_size
         S = self.stride
         K = self.kernel_size
+        
+        # 0. [Priority S] 反 Gamma 变换：sRGB -> Linear
+        # 物理卷积（光学模糊）必须在线性光域进行，否则会导致 PSF 预测偏差
+        x_hat = (x_hat.clamp(min=self.epsilon)).pow(self.gamma)
         
         # 1. Pad Input to ensure patches cover everything nicely
         # We need H, W to be P + k*S.
@@ -568,6 +579,10 @@ reshape → [B*N_patches, C, P, P]
         
         # Crop back to original size
         y_hat = y_hat_padded[..., :H, :W]
+        
+        # [Priority S] Gamma 变换：Linear -> sRGB
+        # 将卷积后的线性图转回 sRGB 域，以便与 GT (sRGB) 计算 Loss
+        y_hat = (y_hat.clamp(min=self.epsilon)).pow(1.0 / self.gamma)
         
         return y_hat
 '''
