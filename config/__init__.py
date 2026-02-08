@@ -47,8 +47,8 @@ class PhysicsConfig:
     def __post_init__(self):
         if self.kernel_size % 2 == 0:
             raise ValueError(f"kernel_size 必须为奇数，当前值: {self.kernel_size}")
-        if self.n_modes < 1 or self.n_modes > 15:
-            raise ValueError(f"n_modes 必须在 1-15 之间，当前值: {self.n_modes}")
+        if self.n_modes < 1 or self.n_modes > 36:
+            raise ValueError(f"n_modes 必须在 1-36 之间，当前值: {self.n_modes}")
 
 
 @dataclass

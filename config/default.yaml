@@ -186,18 +186,18 @@ visualization:
 # 实验配置 (Experiment)
 # -----------------------------------------------------------------------------
 experiment:
-  name: "dpdd_physics_driven"    # 实验名称
+  name: "dpdd_physics_driven_train_2"    # 实验名称
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备: "cuda" 或 "cpu"
   use_physical_layer: true       # 是否启用物理层
   epochs: 300                    # 训练轮数 (= stage1 + stage2 + stage3 = 5+200+50)
   save_interval: 3               # 定期存档间隔 (epochs) - 修改为更频繁，防止意外丢失
   log_interval: 1                # 日志间隔 (epochs)
-  output_dir: "/root/autodl-nas/Defocus_with_NewBP/experiments"  # 输出目录 (AutoDL 网盘)
+  output_dir: "/root/autodl-nas/Defocus_with_NewBP/experiments_2"  # 输出目录 (AutoDL 网盘)
   run_name: ""                   # 可选: 固定实验目录名 (留空则使用 name)
   use_timestamp: true            # 是否追加时间戳
   timestamp_format: "%m%d_%H%M"  # 时间戳格式
-  checkpoints_subdir: "checkpoints"  # checkpoint 子目录
+  checkpoints_subdir: "checkpoints_2"  # checkpoint 子目录
   
   # TensorBoard 配置
   tensorboard:
