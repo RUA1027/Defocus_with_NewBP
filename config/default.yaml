@@ -62,7 +62,7 @@ aberration_net:
 restoration_net:
   n_channels: 3                  # 输入通道数 (RGB)
   n_classes: 3                   # 输出通道数 (RGB)
-  base_filters: 32               # 基础滤波器数量
+  base_filters: 64               # 基础滤波器数量
   bilinear: true                 # 上采样方式: true=双线性插值, false=转置卷积
   use_coords: true               # 是否启用坐标注入 (CoordConv)
   
@@ -102,16 +102,16 @@ training:
       w_img_reg: 0.0
     
     restoration_fixed_physics:      # 第二阶段：物理当裁判，练复原
-      w_data: 0.1                   # 物理自监督辅助
-      w_sup: 1.0                    # 强监督为主
+      w_data: 0.2                   # 物理自监督辅助
+      w_sup: 1.2                    # 强监督为主
       w_smooth: 0.0                 # 物理层冻结，不需要约束系数
       w_coeff: 0.0
       w_img_reg: 0.001              # 复原图像加点全变分正则
       
     joint:                          # 第三阶段：一起微调
-      w_data: 0.5
+      w_data: 0.3
       w_sup: 1.0
-      w_smooth: 0.05
+      w_smooth: 0.02
       w_coeff: 0.01
       w_img_reg: 0.0001
   
@@ -147,8 +147,8 @@ data:
   batch_size: 16                 # 批大小 (由于图像较大，建议 2-4)
   image_height: 1120             # 原始图像高度
   image_width: 1680              # 原始图像宽度
-  crop_size: 512                 # 训练时随机裁剪尺寸 (节省显存)
-  val_crop_size: 1024            # 验证集中心裁剪尺寸
+  crop_size: 1024                 # 训练时随机裁剪尺寸 (节省显存)
+  val_crop_size: 1280            # 验证集中心裁剪尺寸
   num_workers: 8                 # 数据加载线程数
   
   # 虚拟长度机制: 每张图在一个 Epoch 内被随机裁剪的次数
@@ -158,6 +158,7 @@ data:
   # 数据增强
   augmentation:
     random_flip: true            # 开启随机水平/垂直翻转
+    random_rotate90: true        # 开启 90 度整数倍随机旋转
 
 # -----------------------------------------------------------------------------
 # 可视化配置 (Visualization)

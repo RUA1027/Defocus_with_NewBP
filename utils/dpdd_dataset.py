@@ -51,7 +51,7 @@ class DPDDDataset(Dataset):
     def __init__(self, root_dir, mode='train', crop_size=512, 
                  repeat_factor=1, transform=None,
                  val_crop_size=1024, use_full_resolution=False,
-                 random_flip=False):
+                 random_flip=False, random_rotate90=False):
         """
         Args:
             root_dir (str): Root directory of the dataset (e.g., ./data/dd_dp_dataset_png).
@@ -73,6 +73,7 @@ class DPDDDataset(Dataset):
         self.val_crop_size = val_crop_size
         self.use_full_resolution = use_full_resolution
         self.random_flip = random_flip
+        self.random_rotate90 = random_rotate90
 
         # Ensure transform is callable
         if transform is None:
@@ -200,13 +201,26 @@ class DPDDDataset(Dataset):
         )
         
         # Data augmentation (train only)
-        if self.mode == 'train' and self.random_flip:
-            if random.random() < 0.5:
-                blur_img = ImageOps.mirror(blur_img)
-                sharp_img = ImageOps.mirror(sharp_img)
-            if random.random() < 0.5:
-                blur_img = ImageOps.flip(blur_img)
-                sharp_img = ImageOps.flip(sharp_img)
+        if self.mode == 'train':
+            if self.random_rotate90:
+                rotate_k = random.randint(0, 3)
+                if rotate_k == 1:
+                    blur_img = blur_img.transpose(Image.Transpose.ROTATE_90)
+                    sharp_img = sharp_img.transpose(Image.Transpose.ROTATE_90)
+                elif rotate_k == 2:
+                    blur_img = blur_img.transpose(Image.Transpose.ROTATE_180)
+                    sharp_img = sharp_img.transpose(Image.Transpose.ROTATE_180)
+                elif rotate_k == 3:
+                    blur_img = blur_img.transpose(Image.Transpose.ROTATE_270)
+                    sharp_img = sharp_img.transpose(Image.Transpose.ROTATE_270)
+
+            if self.random_flip:
+                if random.random() < 0.5:
+                    blur_img = ImageOps.mirror(blur_img)
+                    sharp_img = ImageOps.mirror(sharp_img)
+                if random.random() < 0.5:
+                    blur_img = ImageOps.flip(blur_img)
+                    sharp_img = ImageOps.flip(sharp_img)
 
         # Apply transforms to convert to tensors
         blur_tensor = self.transform(blur_img)

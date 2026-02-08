@@ -153,6 +153,7 @@ class TrainingConfig:
 class AugmentationConfig:
     """数据增强配置"""
     random_flip: bool = True
+    random_rotate90: bool = False
 
 
 @dataclass

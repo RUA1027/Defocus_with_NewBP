@@ -69,6 +69,8 @@ def build_models_from_config(config: Config, device: str):
     
     # 4. 物理卷积层
     if use_physical_layer:
+        if aberration_net is None or zernike_gen is None:
+            raise RuntimeError("Physical layer requested but required components are missing.")
         physical_layer = SpatiallyVaryingPhysicalLayer(
             aberration_net=aberration_net,
             zernike_generator=zernike_gen,
@@ -179,6 +181,7 @@ def build_dataloader_from_config(config: Config, mode: str = 'train'):
         val_crop_size=val_crop_size,
         use_full_resolution=use_full_resolution,
         random_flip=getattr(getattr(config.data, 'augmentation', None), 'random_flip', False),
+        random_rotate90=getattr(getattr(config.data, 'augmentation', None), 'random_rotate90', False),
         transform=None  # Default ToTensor
     )
     
