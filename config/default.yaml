@@ -11,8 +11,8 @@ physics:
   # 扩充 Zernike 模式，覆盖到 8 阶像差
   # 原值: 15 (覆盖到 4 阶), 新值: 36 (包含二级慧差、三级球差等)
   n_modes: 36                    # Zernike 模式数量 (Noll 1-36)
-  pupil_size: 65                 # 光石计算网格大小 (128 for High Res)
-  kernel_size: 33                # PSF 卷积核大小 (高阶像差 PSF 更弥散，稍微增大)
+  pupil_size: 129                 # 光石计算网格大小 (128 for High Res)
+  kernel_size: 65                # PSF 卷积核大小 (高阶像差 PSF 更弥散，稍微增大)
   oversample_factor: 2           # FFT 过采样因子
   
   # 波长配置 (单位: 米)
@@ -26,8 +26,8 @@ physics:
 # 空间变化卷积层 (OLA - Overlap-Add)
 # -----------------------------------------------------------------------------
 ola:
-  patch_size: 64                 # 补丁大小
-  stride: 32                     # 补丁步长 (50% 重叠)
+  patch_size: 128                 # 补丁大小
+  stride: 64                     # 补丁步长 (50% 重叠)
   pad_to_power_2: true           # FFT 是否填充到 2 的幂
   use_newbp: false                # 是否启用 NewBP 算法 (非对角雅可比)
 
@@ -67,7 +67,7 @@ aberration_net:
 restoration_net:
   n_channels: 3                  # 输入通道数 (RGB)
   n_classes: 3                   # 输出通道数 (RGB)
-  base_filters: 64               # 基础滤波器数量
+  base_filters: 96               # 基础滤波器数量
   bilinear: true                 # 上采样方式: true=双线性插值, false=转置卷积
   use_coords: true               # 是否启用坐标注入 (CoordConv)
   
@@ -128,7 +128,7 @@ training:
     optics: 1.0                  # 像差网络梯度裁剪阈值
                                  # 设置更小的阈值（1.0）是为了强制让物理参数的更新更加“温和”和“稳健”
   # 梯度累积
-  accumulation_steps: 1          # 梯度累积步数，模拟更大的 Batch Size
+  accumulation_steps: 16          # 梯度累积步数，模拟更大的 Batch Size
 
   # 三阶段训练计划 (Stage 1/2/3)
   # 总计 300 Epochs: 50 + 200 + 50
@@ -149,11 +149,11 @@ data:
   # 原始图像尺寸: 1680 x 1120 像素
   data_root: "./data/dd_dp_dataset_png"
 
-  batch_size: 16                 # 批大小 (由于图像较大，建议 2-4)
+  batch_size: 1                 # 批大小 (由于图像较大，建议 2-4)
   image_height: 1120             # 原始图像高度
   image_width: 1680              # 原始图像宽度
   crop_size: 1024                 # 训练时随机裁剪尺寸 (节省显存)
-  val_crop_size: 1280            # 验证集中心裁剪尺寸
+  val_crop_size: 1024            # 验证集中心裁剪尺寸
   num_workers: 8                 # 数据加载线程数
   
   # 虚拟长度机制: 每张图在一个 Epoch 内被随机裁剪的次数

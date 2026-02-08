@@ -292,14 +292,24 @@ class DifferentiableZernikeGenerator(nn.Module):
 原始 → 过采样 → FFT → 下采样 → 裁剪
 64    128      128    64       33
             '''
-            pad_size = self.pupil_size * self.oversample_factor
-            pad_total = pad_size - self.pupil_size
-            p_l = pad_total // 2
-            p_r = pad_total - p_l
-            p_t = pad_total // 2
-            p_b = pad_total - p_t
-            
+            # ====================================================
+            # [Fix] Grid Alignment Strategy
+            # 强制过采样后的网格为奇数，确保 Padding 完美对称，
+            # 彻底消除偶数网格带来的亚像素偏移 (Sub-pixel shift)。
+            # ====================================================
+            target_size = self.pupil_size * self.oversample_factor
+            if target_size % 2 == 0:
+                target_size += 1  # 强制转为奇数 (e.g., 65*2=130 -> 131)
+
+            pad_total = target_size - self.pupil_size
+            # 此时 pad_total 必为偶数 (e.g., 131 - 65 = 66)
+
+            half_pad = pad_total // 2
+            # 完美对称填充
+            p_l, p_r, p_t, p_b = half_pad, half_pad, half_pad, half_pad
+
             pupil_padded = F.pad(pupil, (p_l, p_r, p_t, p_b), mode='constant', value=0)
+            # ====================================================
             
             # FFT
             complex_field = torch.fft.ifftshift(pupil_padded, dim=(-2, -1))
