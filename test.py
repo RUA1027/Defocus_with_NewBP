@@ -168,7 +168,13 @@ def main():
     print(f"\nLoading checkpoint: {args.checkpoint}")
     checkpoint = torch.load(args.checkpoint, map_location=device)
     
-    restoration_net.load_state_dict(checkpoint['restoration_net'])
+    restoration_state = checkpoint['restoration_net']
+    # Remove thop-injected profiling buffers if present (e.g., total_ops/total_params)
+    restoration_state = {
+        k: v for k, v in restoration_state.items()
+        if 'total_ops' not in k and 'total_params' not in k
+    }
+    restoration_net.load_state_dict(restoration_state, strict=True)
     if aberration_net is not None and 'aberration_net' in checkpoint:
         aberration_net.load_state_dict(checkpoint['aberration_net'])
     
