@@ -67,7 +67,7 @@ aberration_net:
 restoration_net:
   n_channels: 3                  # 输入通道数 (RGB)
   n_classes: 3                   # 输出通道数 (RGB)
-  base_filters: 96               # 基础滤波器数量
+  base_filters: 64               # 基础滤波器数量 (原96过大导致显存和计算压力)
   bilinear: true                 # 上采样方式: true=双线性插值, false=转置卷积
   use_coords: true               # 是否启用坐标注入 (CoordConv)
   
@@ -108,7 +108,7 @@ training:
     
     restoration_fixed_physics:      # 第二阶段：物理当裁判，练复原
       w_data: 0.2                   # 物理自监督辅助
-      w_sup: 1.2                    # 强监督为主
+      w_sup: 1.2                    # L1 监督
       w_smooth: 0.0                 # 物理层冻结，不需要约束系数
       w_coeff: 0.0
       w_img_reg: 0.001              # 复原图像加点全变分正则
@@ -133,7 +133,7 @@ training:
   # 三阶段训练计划 (Stage 1/2/3)
   # 总计 300 Epochs: 50 + 200 + 50
   stage_schedule:
-    stage1_epochs: 50              # Stage 1: Physics Only (物理层单独训练)
+    stage1_epochs: 20              # Stage 1: Physics Only (物理层单独训练)
     stage2_epochs: 200            # Stage 2: Restoration with Fixed Physics (复原网络训练)
     stage3_epochs: 50             # Stage 3: Joint Fine-tuning (联合微调，学习率减半)
   
@@ -152,13 +152,14 @@ data:
   batch_size: 16                 # 批大小 (由于图像较大，建议 2-4)
   image_height: 1120             # 原始图像高度
   image_width: 1680              # 原始图像宽度
-  crop_size: 1024                 # 训练时随机裁剪尺寸 (节省显存)
+  crop_size: 512                 # 训练时随机裁剪尺寸 (节省显存)
   val_crop_size: 1024            # 验证集中心裁剪尺寸
   num_workers: 16                 # 数据加载线程数
   
   # 虚拟长度机制: 每张图在一个 Epoch 内被随机裁剪的次数
-  # 训练集: 350 * 100 = 35000 次采样/epoch
-  repeat_factor: 100
+  # 原设定 100 (BS=2) -> 新设定 30 (BS=16)
+  # 保持总样本吞吐量近似: 200ep * 30 * 350 ≈ 2.1M (vs 原 50ep * 100 * 350 = 1.75M)
+  repeat_factor: 30
   
   # 数据增强
   augmentation:
@@ -190,7 +191,7 @@ experiment:
   seed: 42                       # 随机种子
   device: "cuda"                 # 计算设备: "cuda" 或 "cpu"
   use_physical_layer: true       # 是否启用物理层
-  epochs: 300                    # 训练轮数 (= stage1 + stage2 + stage3 = 5+200+50)
+  epochs: 270                    # 训练轮数 (= stage1 + stage2 + stage3 = 5+200+50)
   save_interval: 10               # 定期存档间隔 (epochs) - 修改为更频繁，防止意外丢失
   log_interval: 1                # 日志间隔 (epochs)
   output_dir: "/root/autodl-nas/Defocus_with_NewBP/experiments_2"  # 输出目录 (AutoDL 网盘)

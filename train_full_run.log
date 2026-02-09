@@ -126,3 +126,12 @@ Epoch 10/300 [physics_only]
   ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0209_0857/checkpoints_2/checkpoint_epoch010.pt
 
 Epoch 11/300 [physics_only]
+  Train Loss: 0.004434 (Data: 0.004409, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.004089 |
+| PSF_Smoothness | 1.8e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.004089
+
+Epoch 12/300 [physics_only]

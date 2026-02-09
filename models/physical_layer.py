@@ -329,7 +329,8 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
         
         # 0. [Priority S] 反 Gamma 变换：sRGB -> Linear
         # 物理卷积（光学模糊）必须在线性光域进行，否则会导致 PSF 预测偏差
-        x_hat = (x_hat.clamp(min=self.epsilon)).pow(self.gamma)
+        # 安全性: 确保输入非负，防止 NaN
+        x_linear = (F.relu(x_hat) + self.epsilon).pow(self.gamma)
         
         # 1. Pad Input to ensure patches cover everything nicely
         # We need H, W to be P + k*S.
@@ -370,7 +371,7 @@ pad_h = (64 - (513 - 128) % 64) % 64 = (64 - 1) % 64 = 63
         else:
             mode_pad = 'reflect'
             
-        x_padded = F.pad(x_hat, (0, pad_w, 0, pad_h), mode=mode_pad)
+        x_padded = F.pad(x_linear, (0, pad_w, 0, pad_h), mode=mode_pad)
         
         H_pad, W_pad = x_padded.shape[2:]
         

@@ -72,11 +72,11 @@ class DoubleConv(nn.Module):
             # nn.BatchNorm2d(mid_channels), # Batch Norm can sometimes be problematic in low batch size physics sims, but usually fine.
             # Using GroupNorm or InstanceNorm is often safer for restoration, lets stick to simple Conv+ReLU for now or include BN.
             # Deconvolution often prefers removing BN or using Instance Norm. Let's use standard BN for U-Net baseline.
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
+            nn.InstanceNorm2d(mid_channels, affine=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.LeakyReLU(0.2, inplace=True)
         )
 
     def forward(self, x):

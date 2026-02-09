@@ -578,6 +578,7 @@ class DualBranchTrainer:
         if not self.use_physical_layer:
             X_hat = self.restoration_net(Y_blur)
             loss_sup = self.criterion_l1(X_hat, X_gt)
+
             if w_img_reg > 0:
                 loss_image_reg = self.compute_image_tv_loss(X_hat)
         elif current_stage == 'physics_only':

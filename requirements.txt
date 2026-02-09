@@ -6,6 +6,5 @@ tqdm
 pillow
 matplotlib
 tabulate
-lpips
 thop
 tensorboard
