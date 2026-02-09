@@ -52,6 +52,8 @@ def main():
     parser = argparse.ArgumentParser(description='DPDD Training Script')
     parser.add_argument('--config', '-c', type=str, default='config/default.yaml', help='Path to config file')
     parser.add_argument('--resume', type=str, default=None, help='Path to checkpoint to resume from')
+    parser.add_argument('--stage', type=str, default='all', choices=['1', '2', '3', 'all'], 
+                        help='Specific stage to run (1, 2, 3) or "all" for full training')
     args = parser.parse_args()
 
     # 启用 CUDNN Benchmark 以加速固定尺寸输入的训练
@@ -91,6 +93,19 @@ def main():
                 "config.experiment.epochs must match the sum of training.stage_schedule "
                 f"(epochs={config.experiment.epochs}, schedule_total={schedule_total})."
             )
+            
+        # 根据 --stage 参数确定运行的起止 epoch
+        stage_boundaries = {
+            '1': (0, s1),
+            '2': (s1, s1 + s2),
+            '3': (s1 + s2, schedule_total),
+            'all': (0, schedule_total)
+        }
+        run_start_epoch, run_end_epoch = stage_boundaries[args.stage]
+        print(f"Target Run Stage: {args.stage} (Epochs {run_start_epoch} -> {run_end_epoch})")
+    else:
+        run_start_epoch = 0
+        run_end_epoch = config.experiment.epochs
 
     # 创建输出目录
     base_output_dir = Path(config.experiment.output_dir)
@@ -179,20 +194,31 @@ def main():
         print(f"  Restoration Only:              Epochs 1-{config.experiment.epochs}")
     
     # 6. 恢复训练
-    start_epoch = 0
+    start_epoch = run_start_epoch  # 默认为当前阶段的起始 Epoch
     if args.resume:
         print(f"\nResuming from checkpoint: {args.resume}")
         resume_info = trainer.load_checkpoint(args.resume)
         if resume_info.get('epoch') is not None:
             start_epoch = resume_info['epoch']
             print(f"  Resumed at epoch {start_epoch}")
+            
+    # 检查 start_epoch 是否在允许范围内
+    if start_epoch >= run_end_epoch:
+        print(f"Warning: Start epoch ({start_epoch}) is >= End epoch ({run_end_epoch}) for stage {args.stage}.")
+        print("Training skipped.")
+        return
+    
+    if args.stage != 'all' and start_epoch < run_start_epoch:
+        print(f"Warning: Start epoch ({start_epoch}) is before the requested stage start ({run_start_epoch}).")
+        print(f"Training will start from {start_epoch}, covering previous stages until {run_end_epoch}.")
+
+    total_epochs = run_end_epoch
 
     # 7. 训练循环
     print("\n" + "="*60)
-    print("Start Training")
+    print(f"Start Training (Target: Epochs {start_epoch} -> {run_end_epoch})")
     print("="*60)
     
-    epochs = config.experiment.epochs
     save_interval = config.experiment.save_interval
     prev_stage = None
     
@@ -203,7 +229,7 @@ def main():
     # 创建评估器
     evaluator = PerformanceEvaluator(device=device)
 
-    for epoch in range(start_epoch, epochs):
+    for epoch in range(start_epoch, run_end_epoch):
         current_epoch = epoch + 1
         
         # --- Stage Scheduling (自动基于 epoch) ---
@@ -211,7 +237,7 @@ def main():
         
         # 阶段切换时打印信息
         if stage != prev_stage:
-            print_stage_info(stage, current_epoch, epochs)
+            print_stage_info(stage, current_epoch, total_epochs)
             
             # 熔断机制检查（在阶段切换时）
             if prev_stage is not None and use_physical_layer:
@@ -241,7 +267,7 @@ def main():
             
             prev_stage = stage
         else:
-            print(f"\nEpoch {current_epoch}/{epochs} [{stage}]")
+            print(f"\nEpoch {current_epoch}/{total_epochs} [{stage}]")
         
         # --- Training Phase ---
         epoch_loss = 0.0
@@ -371,7 +397,7 @@ def main():
 
     # 8. 训练结束，保存最终模型
     final_path = os.path.join(checkpoints_dir, "final_model.pt")
-    trainer.save_checkpoint(final_path, epoch=epochs, stage=stage, val_metrics=val_metrics)
+    trainer.save_checkpoint(final_path, epoch=total_epochs, stage=stage, val_metrics=val_metrics)
     print(f"\n✓ Final model saved: {final_path}")
     
     # 关闭 TensorBoard
