@@ -188,8 +188,16 @@ def build_dataloader_from_config(config: Config, mode: str = 'train'):
     # 只有训练集需要 shuffle
     shuffle = (mode == 'train')
     
-    # 测试集 batch_size 通常为 1（全分辨率图像较大）
-    batch_size = 1 if mode == 'test' else config.data.batch_size
+    # 动态调整 Batch Size 防止 OOM
+    if mode == 'test':
+        # 测试集全分辨率，显存压力最大 -> BS=1
+        batch_size = 1
+    elif mode == 'val':
+        # 验证集 crop_size (1024) 远大于训练集，需大幅降低 BS
+        # 设定为训练 batch size 的 1/4 (至少为 1)
+        batch_size = max(1, config.data.batch_size // 4)
+    else:
+        batch_size = config.data.batch_size
     
     loader = DataLoader(
         dataset, 
