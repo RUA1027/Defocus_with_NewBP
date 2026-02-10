@@ -233,6 +233,7 @@ def main():
     results = []
     psnr_total = 0.0
     ssim_total = 0.0
+    mae_total = 0.0
     lpips_total = 0.0
     use_physical_layer = getattr(config.experiment, 'use_physical_layer', True)
     reblur_total = 0.0
@@ -262,6 +263,7 @@ def main():
             # 计算指标
             psnr = evaluator._psnr(restored, sharp).item()
             ssim = evaluator._ssim(restored, sharp).item()
+            mae = evaluator._mae(restored, sharp).item()
             lpips = evaluator._lpips_score(restored, sharp)
             lpips_val = lpips.item() if lpips is not None else float('nan')
             reblur_mse = torch.nn.functional.mse_loss(reblur, blur).item() if reblur is not None else float('nan')
@@ -271,6 +273,7 @@ def main():
                 'filename': filename,
                 'PSNR': psnr,
                 'SSIM': ssim,
+                'MAE': mae,
                 'LPIPS': lpips_val,
                 'Reblur_MSE': reblur_mse
             }
@@ -278,6 +281,7 @@ def main():
             
             psnr_total += psnr
             ssim_total += ssim
+            mae_total += mae
             if not math.isnan(lpips_val):
                 lpips_total += lpips_val
                 lpips_count += 1
@@ -308,6 +312,7 @@ def main():
     avg_metrics = {
         'PSNR': psnr_total / max(n, 1),
         'SSIM': ssim_total / max(n, 1),
+        'MAE': mae_total / max(n, 1),
         'LPIPS': lpips_total / lpips_count if lpips_count > 0 else float('nan'),
         'Reblur_MSE': (reblur_total / max(n, 1)) if use_physical_layer else float('nan'),
         'Params_M': model_stats['total_params'] / 1e6,
@@ -355,10 +360,10 @@ def main():
     # 保存摘要为 CSV
     csv_path = os.path.join(output_dir, 'test_results.csv')
     with open(csv_path, 'w') as f:
-        f.write("filename,PSNR,SSIM,LPIPS,Reblur_MSE\n")
+        f.write("filename,PSNR,SSIM,MAE,LPIPS,Reblur_MSE\n")
         for r in results:
             f.write(f"{r['filename']},{r['PSNR']:.6f},{r['SSIM']:.6f},"
-                    f"{r['LPIPS']:.6f},{r['Reblur_MSE']:.6f}\n")
+                    f"{r['MAE']:.6f},{r['LPIPS']:.6f},{r['Reblur_MSE']:.6f}\n")
     print(f"✓ CSV results saved to: {csv_path}")
     
     # 打印最佳/最差样本

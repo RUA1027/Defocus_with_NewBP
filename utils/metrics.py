@@ -40,6 +40,22 @@ class PerformanceEvaluator:
         return psnr
 
     @staticmethod
+    def _mae(x: torch.Tensor, y: torch.Tensor, scale: float = 255.0) -> torch.Tensor:
+        """计算 MAE (Mean Absolute Error)，结果乘以 scale 以符合 DPDD 数据集展示惯例。
+
+        参考: CVPR 2021 "Iterative Filter Adaptive Network for Single Image Defocus Deblurring"
+
+        Args:
+            x: 预测图像, 值域 [0, 1]
+            y: 真值图像, 值域 [0, 1]
+            scale: 缩放系数, 默认 255.0
+
+        Returns:
+            MAE × scale 的标量 Tensor
+        """
+        return torch.mean(torch.abs(x - y)) * scale
+
+    @staticmethod
     def _gaussian_window(window_size: int, sigma: float, channels: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
         coords = torch.arange(window_size, device=device, dtype=dtype) - window_size // 2
         g = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
@@ -131,6 +147,7 @@ class PerformanceEvaluator:
 
         psnr_total = 0.0
         ssim_total = 0.0
+        mae_total = 0.0
         lpips_total = 0.0
         reblur_total = 0.0
         n = 0
@@ -159,6 +176,7 @@ class PerformanceEvaluator:
 
                 psnr_total += self._psnr(x_hat, sharp).item()
                 ssim_total += self._ssim(x_hat, sharp).item()
+                mae_total += self._mae(x_hat, sharp).item()
 
                 lp = self._lpips_score(x_hat, sharp)
                 if lp is not None:
@@ -186,6 +204,7 @@ class PerformanceEvaluator:
         metrics = {
             "PSNR": psnr_total / max(n, 1),
             "SSIM": ssim_total / max(n, 1),
+            "MAE": mae_total / max(n, 1),
             "LPIPS": (lpips_total / lpips_count) if lpips_count > 0 else float("nan"),
             "Reblur_MSE": (reblur_total / max(n, 1)) if use_physical_layer else float("nan"),
             "PSF_Smoothness": smoothness,
@@ -274,6 +293,7 @@ class PerformanceEvaluator:
         
         psnr_total = 0.0
         ssim_total = 0.0
+        mae_total = 0.0
         lpips_total = 0.0
         reblur_total = 0.0
         n = 0
@@ -301,6 +321,7 @@ class PerformanceEvaluator:
                 # 计算指标
                 psnr = self._psnr(x_hat, sharp).item()
                 ssim = self._ssim(x_hat, sharp).item()
+                mae = self._mae(x_hat, sharp).item()
                 
                 lp = self._lpips_score(x_hat, sharp)
                 lpips_val = lp.item() if lp is not None else float("nan")
@@ -317,12 +338,14 @@ class PerformanceEvaluator:
                     "filename": filename,
                     "PSNR": psnr,
                     "SSIM": ssim,
+                    "MAE": mae,
                     "LPIPS": lpips_val,
                     "Reblur_MSE": reblur_mse
                 })
                 
                 psnr_total += psnr
                 ssim_total += ssim
+                mae_total += mae
                 if not math.isnan(lpips_val):
                     lpips_total += lpips_val
                     lpips_count += 1
@@ -333,9 +356,38 @@ class PerformanceEvaluator:
         avg_metrics = {
             "PSNR": psnr_total / max(n, 1),
             "SSIM": ssim_total / max(n, 1),
+            "MAE": mae_total / max(n, 1),
             "LPIPS": (lpips_total / lpips_count) if lpips_count > 0 else float("nan"),
             "Reblur_MSE": (reblur_total / max(n, 1)) if use_physical_layer else float("nan"),
             "Num_Images": n
         }
         
         return avg_metrics, results
+
+
+def calculate_mae(prediction: torch.Tensor, target: torch.Tensor, scale: float = 255.0) -> torch.Tensor:
+    """
+    计算 MAE (Mean Absolute Error)，结果乘以 scale 以符合 DPDD 数据集展示惯例。
+
+    参考: CVPR 2021 "Iterative Filter Adaptive Network for Single Image Defocus Deblurring"
+
+    Args:
+        prediction: 去模糊结果 Tensor, 值域 [0, 1], shape (B, C, H, W) 或 (C, H, W)
+        target: Ground Truth Tensor, 值域 [0, 1], shape 需与 prediction 一致
+        scale: 缩放系数, 默认 255.0
+
+    Returns:
+        MAE × scale 的标量 Tensor
+
+    Raises:
+        ValueError: 当输入形状不匹配或维度不合法时
+    """
+    if prediction.shape != target.shape:
+        raise ValueError(
+            f"Shape mismatch: prediction {prediction.shape} vs target {target.shape}"
+        )
+    if prediction.ndim not in (3, 4):
+        raise ValueError(
+            f"Expected 3D (C,H,W) or 4D (B,C,H,W) tensor, got {prediction.ndim}D"
+        )
+    return torch.mean(torch.abs(prediction - target)) * scale
