@@ -1,0 +1,47 @@
+Loading config from config/default.yaml...
+✓ 配置已加载: config/default.yaml
+Device: cuda
+Seed: 42
+Target Run Stage: 1 (Epochs 0 -> 20)
+Output directory: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1020
+Checkpoints will be saved to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1020/checkpoints_2
+TensorBoard logs: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1020/runs
+
+============================================================
+Initializing DataLoaders...
+============================================================
+[DPDDDataset] Mode: train, Real samples: 350, Repeat factor: 30, Virtual length: 10500
+[DPDDDataset] Mode: val, Real samples: 74, Repeat factor: 1, Virtual length: 74
+✓ Train set: 350 real images, virtual length: 10500
+✓ Val set size: 74
+✓ Batch size: 32
+✓ Crop size (train): 768
+✓ Center crop size (val): 1024
+
+============================================================
+Building Models...
+============================================================
+  ├─ 像差网络: AberrationNet (hidden_dim=512)
+  ├─ 复原网络: RestorationNet (base_filters=64, use_coords=True)
+  └─ 物理层: OLA (patch=128, stride=64, algo=Standard)
+
+Initializing Trainer...
+[TensorBoard] Logging to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1020/runs
+
+训练计划:
+  Stage 1 (Physics Only):        Epochs 1-20
+  Stage 2 (Restoration):         Epochs 21-220
+  Stage 3 (Joint, LR halved):    Epochs 221-270
+  Total: 270 epochs
+
+============================================================
+Start Training (Target: Epochs 0 -> 20)
+============================================================
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /root/miniconda3/envs/defocus/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+
+============================================================
+Epoch 1/20 - Stage 1: Physics Only (物理层训练)
+============================================================
+  Train Loss: 0.004745 (Data: 0.004718, Sup: 0.000000)
+  Evaluating on validation set...
