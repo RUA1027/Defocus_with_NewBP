@@ -128,7 +128,7 @@ training:
     optics: 1.0                  # 像差网络梯度裁剪阈值
                                  # 设置更小的阈值（1.0）是为了强制让物理参数的更新更加“温和”和“稳健”
   # 梯度累积
-  accumulation_steps: 1          # 梯度累积步数，模拟更大的 Batch Size
+  accumulation_steps: 4          # 梯度累积步数，模拟更大的 Batch Size
 
   # 三阶段训练计划 (Stage 1/2/3)
   # 总计 300 Epochs: 50 + 200 + 50
@@ -149,7 +149,7 @@ data:
   # 原始图像尺寸: 1680 x 1120 像素
   data_root: "./data/dd_dp_dataset_png"
 
-  batch_size: 32                 # 批大小 (由于图像较大，建议 2-4)
+  batch_size: 8                 # 批大小 (由于图像较大，建议 2-4)
   image_height: 1120             # 原始图像高度
   image_width: 1680              # 原始图像宽度
   crop_size: 768                 # 训练时随机裁剪尺寸 (节省显存)

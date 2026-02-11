@@ -1,0 +1,1318 @@
+Loading config from config/default.yaml...
+✓ 配置已加载: config/default.yaml
+Device: cuda
+Seed: 42
+Target Run Stage: all (Epochs 0 -> 270)
+Output directory: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225
+Checkpoints will be saved to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225/checkpoints_2
+TensorBoard logs: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225/runs
+
+============================================================
+Initializing DataLoaders...
+============================================================
+[DPDDDataset] Mode: train, Real samples: 350, Repeat factor: 30, Virtual length: 10500
+[DPDDDataset] Mode: val, Real samples: 74, Repeat factor: 1, Virtual length: 74
+✓ Train set: 350 real images, virtual length: 10500
+✓ Val set size: 74
+✓ Batch size: 32
+✓ Crop size (train): 768
+✓ Center crop size (val): 1024
+
+============================================================
+Building Models...
+============================================================
+  ├─ 像差网络: AberrationNet (hidden_dim=512)
+  ├─ 复原网络: RestorationNet (base_filters=64, use_coords=True)
+  └─ 物理层: OLA (patch=128, stride=64, algo=Standard)
+
+Initializing Trainer...
+[TensorBoard] Logging to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225/runs
+
+训练计划:
+  Stage 1 (Physics Only):        Epochs 1-20
+  Stage 2 (Restoration):         Epochs 21-220
+  Stage 3 (Joint, LR halved):    Epochs 221-270
+  Total: 270 epochs
+
+============================================================
+Start Training (Target: Epochs 0 -> 270)
+============================================================
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /root/miniconda3/envs/defocus/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+
+============================================================
+Epoch 1/270 - Stage 1: Physics Only (物理层训练)
+============================================================
+  Train Loss: 0.004745 (Data: 0.004718, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003805 |
+| PSF_Smoothness | 1.4e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003805
+
+Epoch 2/270 [physics_only]
+  Train Loss: 0.004602 (Data: 0.004570, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003799 |
+| PSF_Smoothness | 1.5e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003799
+
+Epoch 3/270 [physics_only]
+  Train Loss: 0.004591 (Data: 0.004560, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003794 |
+| PSF_Smoothness | 1.3e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003794
+
+Epoch 4/270 [physics_only]
+  Train Loss: 0.004606 (Data: 0.004576, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003791 |
+| PSF_Smoothness | 1.2e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003791
+
+Epoch 5/270 [physics_only]
+  Train Loss: 0.004592 (Data: 0.004561, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003791 |
+| PSF_Smoothness | 1.3e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003791
+
+Epoch 6/270 [physics_only]
+  Train Loss: 0.004625 (Data: 0.004594, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003788 |
+| PSF_Smoothness | 1.3e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003788
+
+Epoch 7/270 [physics_only]
+  Train Loss: 0.004593 (Data: 0.004563, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003789 |
+| PSF_Smoothness | 1.4e-05  |
+
+Epoch 8/270 [physics_only]
+  Train Loss: 0.004576 (Data: 0.004547, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003787 |
+| PSF_Smoothness | 1.5e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003787
+
+Epoch 9/270 [physics_only]
+  Train Loss: 0.004585 (Data: 0.004556, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003785 |
+| PSF_Smoothness | 1.4e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003785
+
+Epoch 10/270 [physics_only]
+  Train Loss: 0.004576 (Data: 0.004549, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003787 |
+| PSF_Smoothness | 1.5e-05  |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225/checkpoints_2/checkpoint_epoch010.pt
+
+Epoch 11/270 [physics_only]
+  Train Loss: 0.004563 (Data: 0.004536, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003787 |
+| PSF_Smoothness | 1.5e-05  |
+
+Epoch 12/270 [physics_only]
+  Train Loss: 0.004570 (Data: 0.004543, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003786 |
+| PSF_Smoothness | 1.3e-05  |
+
+Epoch 13/270 [physics_only]
+  Train Loss: 0.004592 (Data: 0.004567, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003786 |
+| PSF_Smoothness | 1.4e-05  |
+
+Epoch 14/270 [physics_only]
+  Train Loss: 0.004554 (Data: 0.004529, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003787 |
+| PSF_Smoothness | 1.5e-05  |
+
+Epoch 15/270 [physics_only]
+  Train Loss: 0.004581 (Data: 0.004557, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003786 |
+| PSF_Smoothness | 1.5e-05  |
+
+Epoch 16/270 [physics_only]
+  Train Loss: 0.004577 (Data: 0.004553, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003786 |
+| PSF_Smoothness | 1.6e-05  |
+
+Epoch 17/270 [physics_only]
+  Train Loss: 0.004586 (Data: 0.004563, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003787 |
+| PSF_Smoothness | 1.5e-05  |
+
+Epoch 18/270 [physics_only]
+  Train Loss: 0.004582 (Data: 0.004559, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003785 |
+| PSF_Smoothness | 1.7e-05  |
+
+Epoch 19/270 [physics_only]
+  Train Loss: 0.004561 (Data: 0.004538, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003785 |
+| PSF_Smoothness | 1.7e-05  |
+  ✓ New best Stage 1 model saved: Reblur_MSE=0.003785
+
+Epoch 20/270 [physics_only]
+  Train Loss: 0.004579 (Data: 0.004558, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003786 |
+| PSF_Smoothness | 2e-05    |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225/checkpoints_2/checkpoint_epoch020.pt
+
+[Stage Transition] physics_only -> restoration_fixed_physics
+Loading config from config/default.yaml...
+✓ 配置已加载: config/default.yaml
+Device: cuda
+Seed: 42
+Target Run Stage: 2 (Epochs 20 -> 220)
+Output directory: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1612
+Checkpoints will be saved to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1612/checkpoints_2
+TensorBoard logs: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1612/runs
+
+============================================================
+Initializing DataLoaders...
+============================================================
+[DPDDDataset] Mode: train, Real samples: 350, Repeat factor: 30, Virtual length: 10500
+[DPDDDataset] Mode: val, Real samples: 74, Repeat factor: 1, Virtual length: 74
+✓ Train set: 350 real images, virtual length: 10500
+✓ Val set size: 74
+✓ Batch size: 16
+✓ Crop size (train): 768
+✓ Center crop size (val): 1024
+
+============================================================
+Building Models...
+============================================================
+  ├─ 像差网络: AberrationNet (hidden_dim=512)
+  ├─ 复原网络: RestorationNet (base_filters=64, use_coords=True)
+  └─ 物理层: OLA (patch=128, stride=64, algo=Standard)
+
+Initializing Trainer...
+[TensorBoard] Logging to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1612/runs
+
+训练计划:
+  Stage 1 (Physics Only):        Epochs 1-20
+  Stage 2 (Restoration):         Epochs 21-220
+  Stage 3 (Joint, LR halved):    Epochs 221-270
+  Total: 270 epochs
+
+Resuming from checkpoint: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225/checkpoints_2/best_stage1_physics.pt
+  Resumed at epoch 19
+Warning: Start epoch (19) is before the requested stage start (20).
+Training will start from 19, covering previous stages until 220.
+
+============================================================
+Start Training (Target: Epochs 19 -> 220)
+============================================================
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /root/miniconda3/envs/defocus/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+
+============================================================
+Epoch 20/220 - Stage 1: Physics Only (物理层训练)
+============================================================
+  Train Loss: 0.004586 (Data: 0.004564, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003898 |
+| PSF_Smoothness | 1.7e-05  |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1612/checkpoints_2/checkpoint_epoch020.pt
+
+============================================================
+Epoch 21/220 - Stage 2: Restoration with Fixed Physics (复原网络训练)
+============================================================
+
+[Stage Transition] physics_only -> restoration_fixed_physics
+Loading config from config/default.yaml...
+✓ 配置已加载: config/default.yaml
+Device: cuda
+Seed: 42
+Target Run Stage: 2 (Epochs 20 -> 220)
+Output directory: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644
+Checkpoints will be saved to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2
+TensorBoard logs: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/runs
+
+============================================================
+Initializing DataLoaders...
+============================================================
+[DPDDDataset] Mode: train, Real samples: 350, Repeat factor: 30, Virtual length: 10500
+[DPDDDataset] Mode: val, Real samples: 74, Repeat factor: 1, Virtual length: 74
+✓ Train set: 350 real images, virtual length: 10500
+✓ Val set size: 74
+✓ Batch size: 8
+✓ Crop size (train): 768
+✓ Center crop size (val): 1024
+
+============================================================
+Building Models...
+============================================================
+  ├─ 像差网络: AberrationNet (hidden_dim=512)
+  ├─ 复原网络: RestorationNet (base_filters=64, use_coords=True)
+  └─ 物理层: OLA (patch=128, stride=64, algo=Standard)
+
+Initializing Trainer...
+[TensorBoard] Logging to: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/runs
+
+训练计划:
+  Stage 1 (Physics Only):        Epochs 1-20
+  Stage 2 (Restoration):         Epochs 21-220
+  Stage 3 (Joint, LR halved):    Epochs 221-270
+  Total: 270 epochs
+
+Resuming from checkpoint: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1225/checkpoints_2/best_stage1_physics.pt
+  Resumed at epoch 19
+Warning: Start epoch (19) is before the requested stage start (20).
+Training will start from 19, covering previous stages until 220.
+
+============================================================
+Start Training (Target: Epochs 19 -> 220)
+============================================================
+Setting up [LPIPS] perceptual loss: trunk [alex], v[0.1], spatial [off]
+Loading model from: /root/miniconda3/envs/defocus/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth
+
+============================================================
+Epoch 20/220 - Stage 1: Physics Only (物理层训练)
+============================================================
+  Train Loss: 0.004584 (Data: 0.004562, Sup: 0.000000)
+  Evaluating on validation set...
+| Metric         |    Value |
+|----------------|----------|
+| Reblur_MSE     | 0.003958 |
+| PSF_Smoothness | 1.7e-05  |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2/checkpoint_epoch020.pt
+
+============================================================
+Epoch 21/220 - Stage 2: Restoration with Fixed Physics (复原网络训练)
+============================================================
+
+[Stage Transition] physics_only -> restoration_fixed_physics
+  Train Loss: 0.069747 (Data: 0.001159, Sup: 0.068559)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.0388   |
+| SSIM           |   0.701623 |
+| MAE            |  12.2678   |
+| LPIPS          |   0.396638 |
+| Reblur_MSE     |   0.001649 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.099    |
+  ✓ New best Stage 2 model saved: PSNR=23.04
+
+Epoch 22/220 [restoration_fixed_physics]
+  Train Loss: 0.057002 (Data: 0.000361, Sup: 0.056615)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.0562   |
+| SSIM           |   0.703145 |
+| MAE            |  12.2275   |
+| LPIPS          |   0.395092 |
+| Reblur_MSE     |   0.001643 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1018   |
+  ✓ New best Stage 2 model saved: PSNR=23.06
+
+Epoch 23/220 [restoration_fixed_physics]
+  Train Loss: 0.056789 (Data: 0.000361, Sup: 0.056402)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.0932   |
+| SSIM           |   0.704103 |
+| MAE            |  12.1799   |
+| LPIPS          |   0.395514 |
+| Reblur_MSE     |   0.001554 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0868   |
+  ✓ New best Stage 2 model saved: PSNR=23.09
+
+Epoch 24/220 [restoration_fixed_physics]
+  Train Loss: 0.056640 (Data: 0.000357, Sup: 0.056257)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.0695   |
+| SSIM           |   0.703442 |
+| MAE            |  12.2958   |
+| LPIPS          |   0.396952 |
+| Reblur_MSE     |   0.001561 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0889   |
+
+Epoch 25/220 [restoration_fixed_physics]
+  Train Loss: 0.056328 (Data: 0.000354, Sup: 0.055948)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.1555   |
+| SSIM           |   0.704531 |
+| MAE            |  12.1205   |
+| LPIPS          |   0.397428 |
+| Reblur_MSE     |   0.001627 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0885   |
+  ✓ New best Stage 2 model saved: PSNR=23.16
+
+Epoch 26/220 [restoration_fixed_physics]
+  Train Loss: 0.055919 (Data: 0.000356, Sup: 0.055538)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.2323   |
+| SSIM           |   0.706035 |
+| MAE            |  12.0701   |
+| LPIPS          |   0.39762  |
+| Reblur_MSE     |   0.001661 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1006   |
+  ✓ New best Stage 2 model saved: PSNR=23.23
+
+Epoch 27/220 [restoration_fixed_physics]
+  Train Loss: 0.055658 (Data: 0.000361, Sup: 0.055272)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.3529   |
+| SSIM           |   0.708034 |
+| MAE            |  11.9024   |
+| LPIPS          |   0.396868 |
+| Reblur_MSE     |   0.00164  |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0892   |
+  ✓ New best Stage 2 model saved: PSNR=23.35
+
+Epoch 28/220 [restoration_fixed_physics]
+  Train Loss: 0.054857 (Data: 0.000364, Sup: 0.054468)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.4598   |
+| SSIM           |   0.711169 |
+| MAE            |  11.7961   |
+| LPIPS          |   0.390786 |
+| Reblur_MSE     |   0.001651 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0817   |
+  ✓ New best Stage 2 model saved: PSNR=23.46
+
+Epoch 29/220 [restoration_fixed_physics]
+  Train Loss: 0.054367 (Data: 0.000376, Sup: 0.053965)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.5145   |
+| SSIM           |   0.713404 |
+| MAE            |  11.7257   |
+| LPIPS          |   0.388638 |
+| Reblur_MSE     |   0.001739 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.099    |
+  ✓ New best Stage 2 model saved: PSNR=23.51
+
+Epoch 30/220 [restoration_fixed_physics]
+  Train Loss: 0.053818 (Data: 0.000386, Sup: 0.053407)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.5652   |
+| SSIM           |   0.714619 |
+| MAE            |  11.7237   |
+| LPIPS          |   0.390049 |
+| Reblur_MSE     |   0.001907 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1016   |
+  ✓ New best Stage 2 model saved: PSNR=23.57
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2/checkpoint_epoch030.pt
+
+Epoch 31/220 [restoration_fixed_physics]
+  Train Loss: 0.053213 (Data: 0.000395, Sup: 0.052793)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.6589   |
+| SSIM           |   0.718699 |
+| MAE            |  11.6077   |
+| LPIPS          |   0.381584 |
+| Reblur_MSE     |   0.001695 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0941   |
+  ✓ New best Stage 2 model saved: PSNR=23.66
+
+Epoch 32/220 [restoration_fixed_physics]
+  Train Loss: 0.052496 (Data: 0.000410, Sup: 0.052061)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.6991   |
+| SSIM           |   0.722437 |
+| MAE            |  11.5466   |
+| LPIPS          |   0.375721 |
+| Reblur_MSE     |   0.001742 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.106    |
+  ✓ New best Stage 2 model saved: PSNR=23.70
+
+Epoch 33/220 [restoration_fixed_physics]
+  Train Loss: 0.051694 (Data: 0.000424, Sup: 0.051244)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.6551   |
+| SSIM           |   0.721264 |
+| MAE            |  11.667    |
+| LPIPS          |   0.379406 |
+| Reblur_MSE     |   0.001739 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1023   |
+
+Epoch 34/220 [restoration_fixed_physics]
+  Train Loss: 0.051355 (Data: 0.000435, Sup: 0.050895)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.7075   |
+| SSIM           |   0.723797 |
+| MAE            |  11.5639   |
+| LPIPS          |   0.373623 |
+| Reblur_MSE     |   0.002053 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0878   |
+  ✓ New best Stage 2 model saved: PSNR=23.71
+
+Epoch 35/220 [restoration_fixed_physics]
+  Train Loss: 0.050683 (Data: 0.000446, Sup: 0.050212)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.6801   |
+| SSIM           |   0.724566 |
+| MAE            |  11.6125   |
+| LPIPS          |   0.370408 |
+| Reblur_MSE     |   0.00185  |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1187   |
+
+Epoch 36/220 [restoration_fixed_physics]
+  Train Loss: 0.049913 (Data: 0.000464, Sup: 0.049423)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.6752   |
+| SSIM           |   0.725747 |
+| MAE            |  11.6284   |
+| LPIPS          |   0.358862 |
+| Reblur_MSE     |   0.002142 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0857   |
+
+Epoch 37/220 [restoration_fixed_physics]
+  Train Loss: 0.049247 (Data: 0.000478, Sup: 0.048743)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.7432   |
+| SSIM           |   0.727672 |
+| MAE            |  11.6192   |
+| LPIPS          |   0.353948 |
+| Reblur_MSE     |   0.002016 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0894   |
+  ✓ New best Stage 2 model saved: PSNR=23.74
+
+Epoch 38/220 [restoration_fixed_physics]
+  Train Loss: 0.048437 (Data: 0.000488, Sup: 0.047923)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.7328   |
+| SSIM           |   0.730009 |
+| MAE            |  11.6293   |
+| LPIPS          |   0.354997 |
+| Reblur_MSE     |   0.002082 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0966   |
+
+Epoch 39/220 [restoration_fixed_physics]
+  Train Loss: 0.047534 (Data: 0.000509, Sup: 0.046999)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.7097   |
+| SSIM           |   0.729153 |
+| MAE            |  11.6736   |
+| LPIPS          |   0.355206 |
+| Reblur_MSE     |   0.00203  |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0797   |
+
+Epoch 40/220 [restoration_fixed_physics]
+  Train Loss: 0.047146 (Data: 0.000522, Sup: 0.046598)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.91     |
+| SSIM           |   0.735181 |
+| MAE            |  11.3472   |
+| LPIPS          |   0.347752 |
+| Reblur_MSE     |   0.002064 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1089   |
+  ✓ New best Stage 2 model saved: PSNR=23.91
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2/checkpoint_epoch040.pt
+
+Epoch 41/220 [restoration_fixed_physics]
+  Train Loss: 0.046202 (Data: 0.000535, Sup: 0.045640)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.8917   |
+| SSIM           |   0.737094 |
+| MAE            |  11.369    |
+| LPIPS          |   0.342335 |
+| Reblur_MSE     |   0.002217 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.089    |
+
+Epoch 42/220 [restoration_fixed_physics]
+  Train Loss: 0.045595 (Data: 0.000545, Sup: 0.045024)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.8336   |
+| SSIM           |   0.736279 |
+| MAE            |  11.4992   |
+| LPIPS          |   0.341464 |
+| Reblur_MSE     |   0.002147 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0989   |
+
+Epoch 43/220 [restoration_fixed_physics]
+  Train Loss: 0.045104 (Data: 0.000555, Sup: 0.044522)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.8909   |
+| SSIM           |   0.736598 |
+| MAE            |  11.4453   |
+| LPIPS          |   0.339415 |
+| Reblur_MSE     |   0.002079 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0844   |
+
+Epoch 44/220 [restoration_fixed_physics]
+  Train Loss: 0.044611 (Data: 0.000562, Sup: 0.044023)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.9452   |
+| SSIM           |   0.740083 |
+| MAE            |  11.3391   |
+| LPIPS          |   0.337805 |
+| Reblur_MSE     |   0.002096 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0914   |
+  ✓ New best Stage 2 model saved: PSNR=23.95
+
+Epoch 45/220 [restoration_fixed_physics]
+  Train Loss: 0.044081 (Data: 0.000574, Sup: 0.043480)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.8806   |
+| SSIM           |   0.741053 |
+| MAE            |  11.4073   |
+| LPIPS          |   0.330885 |
+| Reblur_MSE     |   0.002155 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.096    |
+
+Epoch 46/220 [restoration_fixed_physics]
+  Train Loss: 0.043844 (Data: 0.000579, Sup: 0.043238)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.8783   |
+| SSIM           |   0.741597 |
+| MAE            |  11.4006   |
+| LPIPS          |   0.331673 |
+| Reblur_MSE     |   0.002273 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0927   |
+
+Epoch 47/220 [restoration_fixed_physics]
+  Train Loss: 0.043283 (Data: 0.000585, Sup: 0.042671)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  23.9982   |
+| SSIM           |   0.745017 |
+| MAE            |  11.2938   |
+| LPIPS          |   0.329964 |
+| Reblur_MSE     |   0.002024 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0914   |
+  ✓ New best Stage 2 model saved: PSNR=24.00
+
+Epoch 48/220 [restoration_fixed_physics]
+  Train Loss: 0.042959 (Data: 0.000590, Sup: 0.042342)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.025    |
+| SSIM           |   0.744879 |
+| MAE            |  11.2085   |
+| LPIPS          |   0.328364 |
+| Reblur_MSE     |   0.002394 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0979   |
+  ✓ New best Stage 2 model saved: PSNR=24.03
+
+Epoch 49/220 [restoration_fixed_physics]
+  Train Loss: 0.042867 (Data: 0.000595, Sup: 0.042245)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.0479   |
+| SSIM           |   0.745432 |
+| MAE            |  11.1899   |
+| LPIPS          |   0.322456 |
+| Reblur_MSE     |   0.002104 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.093    |
+  ✓ New best Stage 2 model saved: PSNR=24.05
+
+Epoch 50/220 [restoration_fixed_physics]
+  Train Loss: 0.042382 (Data: 0.000605, Sup: 0.041750)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.0352   |
+| SSIM           |   0.745017 |
+| MAE            |  11.2254   |
+| LPIPS          |   0.328837 |
+| Reblur_MSE     |   0.002167 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0976   |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2/checkpoint_epoch050.pt
+
+Epoch 51/220 [restoration_fixed_physics]
+  Train Loss: 0.042006 (Data: 0.000612, Sup: 0.041367)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.037    |
+| SSIM           |   0.748365 |
+| MAE            |  11.2282   |
+| LPIPS          |   0.320976 |
+| Reblur_MSE     |   0.002234 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0946   |
+
+Epoch 52/220 [restoration_fixed_physics]
+  Train Loss: 0.041777 (Data: 0.000614, Sup: 0.041136)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.0778   |
+| SSIM           |   0.748135 |
+| MAE            |  11.0941   |
+| LPIPS          |   0.321496 |
+| Reblur_MSE     |   0.0022   |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0881   |
+  ✓ New best Stage 2 model saved: PSNR=24.08
+
+Epoch 53/220 [restoration_fixed_physics]
+  Train Loss: 0.041502 (Data: 0.000621, Sup: 0.040854)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.0303   |
+| SSIM           |   0.749611 |
+| MAE            |  11.1802   |
+| LPIPS          |   0.32019  |
+| Reblur_MSE     |   0.002458 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0881   |
+
+Epoch 54/220 [restoration_fixed_physics]
+  Train Loss: 0.041183 (Data: 0.000623, Sup: 0.040533)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.1259   |
+| SSIM           |   0.750945 |
+| MAE            |  11.0442   |
+| LPIPS          |   0.319144 |
+| Reblur_MSE     |   0.002256 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0932   |
+  ✓ New best Stage 2 model saved: PSNR=24.13
+
+Epoch 55/220 [restoration_fixed_physics]
+  Train Loss: 0.041169 (Data: 0.000626, Sup: 0.040516)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.0629   |
+| SSIM           |   0.75086  |
+| MAE            |  11.1593   |
+| LPIPS          |   0.321508 |
+| Reblur_MSE     |   0.002276 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0914   |
+
+Epoch 56/220 [restoration_fixed_physics]
+  Train Loss: 0.040682 (Data: 0.000633, Sup: 0.040022)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.0998   |
+| SSIM           |   0.74976  |
+| MAE            |  11.1369   |
+| LPIPS          |   0.3159   |
+| Reblur_MSE     |   0.002323 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0894   |
+
+Epoch 57/220 [restoration_fixed_physics]
+  Train Loss: 0.040464 (Data: 0.000636, Sup: 0.039801)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2374   |
+| SSIM           |   0.7531   |
+| MAE            |  10.9164   |
+| LPIPS          |   0.316844 |
+| Reblur_MSE     |   0.002261 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0951   |
+  ✓ New best Stage 2 model saved: PSNR=24.24
+
+Epoch 58/220 [restoration_fixed_physics]
+  Train Loss: 0.040179 (Data: 0.000642, Sup: 0.039510)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.104    |
+| SSIM           |   0.753378 |
+| MAE            |  11.0887   |
+| LPIPS          |   0.313281 |
+| Reblur_MSE     |   0.002381 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0819   |
+
+Epoch 59/220 [restoration_fixed_physics]
+  Train Loss: 0.040264 (Data: 0.000640, Sup: 0.039596)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.1132   |
+| SSIM           |   0.752819 |
+| MAE            |  11.0995   |
+| LPIPS          |   0.315772 |
+| Reblur_MSE     |   0.002272 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1067   |
+
+Epoch 60/220 [restoration_fixed_physics]
+  Train Loss: 0.039801 (Data: 0.000646, Sup: 0.039128)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.122    |
+| SSIM           |   0.752994 |
+| MAE            |  11.1709   |
+| LPIPS          |   0.313668 |
+| Reblur_MSE     |   0.002334 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1122   |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2/checkpoint_epoch060.pt
+
+Epoch 61/220 [restoration_fixed_physics]
+  Train Loss: 0.039702 (Data: 0.000649, Sup: 0.039026)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.0604   |
+| SSIM           |   0.752948 |
+| MAE            |  11.2276   |
+| LPIPS          |   0.31376  |
+| Reblur_MSE     |   0.002211 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1074   |
+
+Epoch 62/220 [restoration_fixed_physics]
+  Train Loss: 0.039548 (Data: 0.000652, Sup: 0.038868)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2225   |
+| SSIM           |   0.754889 |
+| MAE            |  10.9242   |
+| LPIPS          |   0.311163 |
+| Reblur_MSE     |   0.002157 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.094    |
+
+Epoch 63/220 [restoration_fixed_physics]
+  Train Loss: 0.039230 (Data: 0.000661, Sup: 0.038542)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.194    |
+| SSIM           |   0.753267 |
+| MAE            |  10.9474   |
+| LPIPS          |   0.31025  |
+| Reblur_MSE     |   0.002254 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0899   |
+
+Epoch 64/220 [restoration_fixed_physics]
+  Train Loss: 0.039728 (Data: 0.000652, Sup: 0.039048)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2751   |
+| SSIM           |   0.755715 |
+| MAE            |  10.8943   |
+| LPIPS          |   0.31095  |
+| Reblur_MSE     |   0.002192 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0919   |
+  ✓ New best Stage 2 model saved: PSNR=24.28
+
+Epoch 65/220 [restoration_fixed_physics]
+  Train Loss: 0.038906 (Data: 0.000664, Sup: 0.038214)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2012   |
+| SSIM           |   0.759126 |
+| MAE            |  10.9828   |
+| LPIPS          |   0.303091 |
+| Reblur_MSE     |   0.002279 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0826   |
+
+Epoch 66/220 [restoration_fixed_physics]
+  Train Loss: 0.038629 (Data: 0.000666, Sup: 0.037936)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2136   |
+| SSIM           |   0.757172 |
+| MAE            |  10.9789   |
+| LPIPS          |   0.306723 |
+| Reblur_MSE     |   0.002321 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0852   |
+
+Epoch 67/220 [restoration_fixed_physics]
+  Train Loss: 0.038720 (Data: 0.000671, Sup: 0.038021)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2379   |
+| SSIM           |   0.756406 |
+| MAE            |  10.9352   |
+| LPIPS          |   0.310192 |
+| Reblur_MSE     |   0.002162 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0897   |
+
+Epoch 68/220 [restoration_fixed_physics]
+  Train Loss: 0.038376 (Data: 0.000672, Sup: 0.037677)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2479   |
+| SSIM           |   0.75728  |
+| MAE            |  10.8778   |
+| LPIPS          |   0.304011 |
+| Reblur_MSE     |   0.002402 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0968   |
+
+Epoch 69/220 [restoration_fixed_physics]
+  Train Loss: 0.038308 (Data: 0.000676, Sup: 0.037604)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.1867   |
+| SSIM           |   0.757753 |
+| MAE            |  10.9756   |
+| LPIPS          |   0.300325 |
+| Reblur_MSE     |   0.002394 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1055   |
+
+Epoch 70/220 [restoration_fixed_physics]
+  Train Loss: 0.039164 (Data: 0.000656, Sup: 0.038481)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2006   |
+| SSIM           |   0.757365 |
+| MAE            |  11.024    |
+| LPIPS          |   0.299094 |
+| Reblur_MSE     |   0.002314 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.097    |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2/checkpoint_epoch070.pt
+
+Epoch 71/220 [restoration_fixed_physics]
+  Train Loss: 0.037939 (Data: 0.000677, Sup: 0.037235)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2955   |
+| SSIM           |   0.757842 |
+| MAE            |  10.8754   |
+| LPIPS          |   0.301235 |
+| Reblur_MSE     |   0.002306 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.101    |
+  ✓ New best Stage 2 model saved: PSNR=24.30
+
+Epoch 72/220 [restoration_fixed_physics]
+  Train Loss: 0.037607 (Data: 0.000680, Sup: 0.036900)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2752   |
+| SSIM           |   0.759976 |
+| MAE            |  10.8264   |
+| LPIPS          |   0.298547 |
+| Reblur_MSE     |   0.002226 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0883   |
+
+Epoch 73/220 [restoration_fixed_physics]
+  Train Loss: 0.037701 (Data: 0.000685, Sup: 0.036988)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2625   |
+| SSIM           |   0.761081 |
+| MAE            |  10.9132   |
+| LPIPS          |   0.294178 |
+| Reblur_MSE     |   0.002295 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1017   |
+
+Epoch 74/220 [restoration_fixed_physics]
+  Train Loss: 0.037568 (Data: 0.000684, Sup: 0.036855)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.283    |
+| SSIM           |   0.760615 |
+| MAE            |  10.8222   |
+| LPIPS          |   0.299299 |
+| Reblur_MSE     |   0.00226  |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0934   |
+
+Epoch 75/220 [restoration_fixed_physics]
+  Train Loss: 0.037343 (Data: 0.000685, Sup: 0.036630)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2793   |
+| SSIM           |   0.758305 |
+| MAE            |  10.8176   |
+| LPIPS          |   0.296348 |
+| Reblur_MSE     |   0.002324 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.09     |
+
+Epoch 76/220 [restoration_fixed_physics]
+  Train Loss: 0.037347 (Data: 0.000690, Sup: 0.036629)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.3729   |
+| SSIM           |   0.760938 |
+| MAE            |  10.7391   |
+| LPIPS          |   0.2962   |
+| Reblur_MSE     |   0.00226  |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0948   |
+  ✓ New best Stage 2 model saved: PSNR=24.37
+
+Epoch 77/220 [restoration_fixed_physics]
+  Train Loss: 0.037322 (Data: 0.000689, Sup: 0.036605)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.3259   |
+| SSIM           |   0.761145 |
+| MAE            |  10.7725   |
+| LPIPS          |   0.293266 |
+| Reblur_MSE     |   0.002475 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0775   |
+
+Epoch 78/220 [restoration_fixed_physics]
+  Train Loss: 0.037216 (Data: 0.000690, Sup: 0.036498)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.2651   |
+| SSIM           |   0.76159  |
+| MAE            |  10.9277   |
+| LPIPS          |   0.291154 |
+| Reblur_MSE     |   0.002418 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0901   |
+
+Epoch 79/220 [restoration_fixed_physics]
+  Train Loss: 0.036754 (Data: 0.000691, Sup: 0.036035)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.3464   |
+| SSIM           |   0.763893 |
+| MAE            |  10.771    |
+| LPIPS          |   0.284889 |
+| Reblur_MSE     |   0.002278 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1141   |
+
+Epoch 80/220 [restoration_fixed_physics]
+  Train Loss: 0.036836 (Data: 0.000698, Sup: 0.036111)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.3265   |
+| SSIM           |   0.762217 |
+| MAE            |  10.784    |
+| LPIPS          |   0.290738 |
+| Reblur_MSE     |   0.002329 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.1035   |
+  ✓ Periodic checkpoint saved: /root/autodl-nas/Defocus_with_NewBP/experiments_2/dpdd_physics_driven_train_2_0210_1644/checkpoints_2/checkpoint_epoch080.pt
+
+Epoch 81/220 [restoration_fixed_physics]
+  Train Loss: 0.037448 (Data: 0.000683, Sup: 0.036737)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.389    |
+| SSIM           |   0.763408 |
+| MAE            |  10.6992   |
+| LPIPS          |   0.291627 |
+| Reblur_MSE     |   0.002276 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0951   |
+  ✓ New best Stage 2 model saved: PSNR=24.39
+
+Epoch 82/220 [restoration_fixed_physics]
+  Train Loss: 0.036624 (Data: 0.000699, Sup: 0.035896)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.3371   |
+| SSIM           |   0.762519 |
+| MAE            |  10.7926   |
+| LPIPS          |   0.291327 |
+| Reblur_MSE     |   0.002378 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0963   |
+
+Epoch 83/220 [restoration_fixed_physics]
+  Train Loss: 0.036455 (Data: 0.000706, Sup: 0.035720)
+  Evaluating on validation set...
+| Metric         |      Value |
+|----------------|------------|
+| PSNR           |  24.225    |
+| SSIM           |   0.76295  |
+| MAE            |  10.9456   |
+| LPIPS          |   0.287932 |
+| Reblur_MSE     |   0.002477 |
+| PSF_Smoothness |   1.7e-05  |
+| Params(M)      |  18.5955   |
+| FLOPs(GMACs)   | 644.321    |
+| Inference(ms)  |  26.0942   |
+
+Epoch 84/220 [restoration_fixed_physics]
