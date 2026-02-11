@@ -139,7 +139,7 @@ class PerformanceEvaluator:
                 return (end - start) * 1000.0 / repeat
 
     def evaluate(self, restoration_net: nn.Module, physical_layer: Optional[nn.Module], val_loader, device: str,
-                 smoothness_grid_size: int = 16) -> Dict[str, float]:
+                 smoothness_grid_size: int = 16, injection_grid_size: int = 16) -> Dict[str, float]:
         restoration_net.eval()
         use_physical_layer = physical_layer is not None
         if use_physical_layer:
@@ -172,7 +172,7 @@ class PerformanceEvaluator:
                 if use_physical_layer and getattr(restoration_net, 'n_coeffs', 0) > 0:
                     B, _, H, W = blur.shape
                     coeffs_map = physical_layer.generate_coeffs_map(
-                        H, W, device, grid_size=16,
+                        H, W, device, grid_size=injection_grid_size,
                         crop_info=crop_info, batch_size=B
                     )
 
@@ -280,7 +280,7 @@ class PerformanceEvaluator:
         }
 
     def evaluate_full_resolution(self, restoration_net: nn.Module, physical_layer: Optional[nn.Module], 
-                                  test_loader, device: str) -> Tuple[Dict[str, float], list]:
+                                  test_loader, device: str, injection_grid_size: int = 16) -> Tuple[Dict[str, float], list]:
         """
         全分辨率测试集评估（用于论文最终结果）
         
@@ -289,6 +289,7 @@ class PerformanceEvaluator:
             physical_layer: 物理层
             test_loader: 测试集 DataLoader
             device: 计算设备
+            injection_grid_size: 物理注入采样网格大小
         
         Returns:
             tuple: (平均指标字典, 每张图像的详细结果列表)
@@ -329,7 +330,7 @@ class PerformanceEvaluator:
                 if use_physical_layer and getattr(restoration_net, 'n_coeffs', 0) > 0:
                     B, _, H, W = blur.shape
                     coeffs_map = physical_layer.generate_coeffs_map(
-                        H, W, device, grid_size=16,
+                        H, W, device, grid_size=injection_grid_size,
                         crop_info=crop_info, batch_size=B
                     )
 

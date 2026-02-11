@@ -103,6 +103,7 @@ class DualBranchTrainer:
                  stage_schedule=None,
                  stage_weights=None,
                  smoothness_grid_size=16,
+                 injection_grid_size=16,
                  device='cuda',
                  accumulation_steps=4,
                  tensorboard_dir=None,
@@ -152,6 +153,7 @@ class DualBranchTrainer:
 
         # 平滑正则采样网格大小
         self.smoothness_grid_size = smoothness_grid_size
+        self.injection_grid_size = injection_grid_size
 
         # 梯度累积
         self.accumulation_steps = max(1, accumulation_steps)
@@ -521,11 +523,14 @@ class DualBranchTrainer:
     def get_stage_weights(self, epoch: int):
         return self._get_stage_weights(self._get_stage(epoch))
 
-    def _generate_coeffs_map(self, H, W, crop_info=None, batch_size=1, grid_size=16):
+    def _generate_coeffs_map(self, H, W, crop_info=None, batch_size=1, grid_size=None):
         """
         从物理层生成系数空间分布图，用于注入复原网络。
         当复原网络不支持系数注入 (n_coeffs=0) 或物理层不存在时，返回 None。
         """
+        if grid_size is None:
+            grid_size = self.injection_grid_size
+
         if (not self.use_physical_layer or self.physical_layer is None 
                 or getattr(self.restoration_net, 'n_coeffs', 0) == 0):
             return None

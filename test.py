@@ -236,6 +236,7 @@ def main():
     mae_total = 0.0
     lpips_total = 0.0
     use_physical_layer = getattr(config.experiment, 'use_physical_layer', True)
+    injection_grid_size = getattr(config.restoration_net, 'injection_grid_size', 16)
     reblur_total = 0.0
     n = 0
     lpips_count = 0
@@ -256,7 +257,7 @@ def main():
             if use_physical_layer and physical_layer is not None and getattr(restoration_net, 'n_coeffs', 0) > 0:
                 B, _, H, W = blur.shape
                 coeffs_map = physical_layer.generate_coeffs_map(
-                    H, W, device, grid_size=16,
+                    H, W, device, grid_size=injection_grid_size,
                     crop_info=crop_info, batch_size=B
                 )
             
