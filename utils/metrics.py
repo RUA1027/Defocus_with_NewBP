@@ -167,7 +167,16 @@ class PerformanceEvaluator:
                     sharp = sharp.to(device)
                     crop_info = None
 
-                x_hat = restoration_net(blur)
+                # 生成物理系数图（如有）
+                coeffs_map = None
+                if use_physical_layer and getattr(restoration_net, 'n_coeffs', 0) > 0:
+                    B, _, H, W = blur.shape
+                    coeffs_map = physical_layer.generate_coeffs_map(
+                        H, W, device, grid_size=16,
+                        crop_info=crop_info, batch_size=B
+                    )
+
+                x_hat = restoration_net(blur, coeffs_map=coeffs_map)
 
                 if x_hat.shape[1] == 1 and sharp.shape[1] == 3:
                     x_hat = x_hat.repeat(1, 3, 1, 1)
@@ -315,8 +324,17 @@ class PerformanceEvaluator:
                     crop_info = None
                     filename = f"image_{n}"
                 
+                # 生成物理系数图（如有）
+                coeffs_map = None
+                if use_physical_layer and getattr(restoration_net, 'n_coeffs', 0) > 0:
+                    B, _, H, W = blur.shape
+                    coeffs_map = physical_layer.generate_coeffs_map(
+                        H, W, device, grid_size=16,
+                        crop_info=crop_info, batch_size=B
+                    )
+
                 # 复原
-                x_hat = restoration_net(blur)
+                x_hat = restoration_net(blur, coeffs_map=coeffs_map)
                 
                 # 计算指标
                 psnr = self._psnr(x_hat, sharp).item()

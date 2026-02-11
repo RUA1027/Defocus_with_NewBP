@@ -251,8 +251,17 @@ def main():
             if crop_info is not None:
                 crop_info = crop_info.to(device)
             
+            # 生成物理系数图（如有）
+            coeffs_map = None
+            if use_physical_layer and physical_layer is not None and getattr(restoration_net, 'n_coeffs', 0) > 0:
+                B, _, H, W = blur.shape
+                coeffs_map = physical_layer.generate_coeffs_map(
+                    H, W, device, grid_size=16,
+                    crop_info=crop_info, batch_size=B
+                )
+            
             # 复原
-            restored = restoration_net(blur)
+            restored = restoration_net(blur, coeffs_map=coeffs_map)
             
             # 重模糊
             if use_physical_layer and physical_layer is not None:

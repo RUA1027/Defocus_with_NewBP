@@ -37,7 +37,9 @@ def build_models_from_config(config: Config, device: str):
             oversample_factor=config.physics.oversample_factor,
             wavelengths=config.physics.wavelengths,
             ref_wavelength=config.physics.ref_wavelength,
-            device=device
+            device=device,
+            learnable_wavelengths=getattr(config.physics, "learnable_wavelengths", False),
+            wavelength_bounds=getattr(config.physics, "wavelength_bounds", None)
         )
         
         # 2. 像差预测网络
@@ -58,14 +60,25 @@ def build_models_from_config(config: Config, device: str):
             print(f"  ├─ 像差网络: AberrationNet (hidden_dim={config.aberration_net.mlp.hidden_dim})")
     
     # 3. 图像复原网络
+    # 确定是否注入物理系数图
+    use_physics_injection = (
+        use_physical_layer 
+        and getattr(config.restoration_net, 'use_physics_injection', False)
+    )
+    n_coeffs = config.aberration_net.n_coeffs if use_physics_injection else 0
+
     restoration_net = RestorationNet(
         n_channels=config.restoration_net.n_channels,
         n_classes=config.restoration_net.n_classes,
         bilinear=config.restoration_net.bilinear,
         base_filters=config.restoration_net.base_filters,
-        use_coords=config.restoration_net.use_coords
+        use_coords=config.restoration_net.use_coords,
+        n_coeffs=n_coeffs
     ).to(device)
-    print(f"  ├─ 复原网络: RestorationNet (base_filters={config.restoration_net.base_filters}, use_coords={config.restoration_net.use_coords})")
+    if n_coeffs > 0:
+        print(f"  ├─ 复原网络: RestorationNet (base_filters={config.restoration_net.base_filters}, use_coords={config.restoration_net.use_coords}, n_coeffs={n_coeffs})")
+    else:
+        print(f"  ├─ 复原网络: RestorationNet (base_filters={config.restoration_net.base_filters}, use_coords={config.restoration_net.use_coords})")
     
     # 4. 物理卷积层
     if use_physical_layer:

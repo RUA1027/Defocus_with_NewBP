@@ -21,6 +21,8 @@ physics:
     - 620.0e-9                   # 红光
     - 550.0e-9                   # 绿光
     - 450.0e-9                   # 蓝光
+  learnable_wavelengths: false   # 是否启用自适应波长
+  wavelength_bounds: [400.0e-9, 700.0e-9]  # 波长范围约束
 
 # -----------------------------------------------------------------------------
 # 空间变化卷积层 (OLA - Overlap-Add)
@@ -70,6 +72,8 @@ restoration_net:
   base_filters: 64               # 基础滤波器数量 (原96过大导致显存和计算压力)
   bilinear: true                 # 上采样方式: true=双线性插值, false=转置卷积
   use_coords: true               # 是否启用坐标注入 (CoordConv)
+  use_physics_injection: true     # 是否将 Zernike 系数图注入复原网络
+  injection_grid_size: 16         # 系数图采样网格大小
   
   # U-Net 架构配置 (通道倍数)
   channel_multipliers:

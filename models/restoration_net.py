@@ -176,17 +176,18 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 class RestorationNet(nn.Module):
-    def __init__(self, n_channels, n_classes, base_filters=32, bilinear=True, use_coords=False):
+    def __init__(self, n_channels, n_classes, base_filters=32, bilinear=True, use_coords=False, n_coeffs=0):
         super(RestorationNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
         self.use_coords = use_coords
+        self.n_coeffs = n_coeffs  # Zernike 系数通道数 (0 = 不注入物理信息)
         
         factor = 2 if bilinear else 1
         
-        # Increase input channels if using coordinates
-        input_channels = n_channels + 2 if use_coords else n_channels
+        # Increase input channels if using coordinates and/or physics injection
+        input_channels = n_channels + (2 if use_coords else 0) + n_coeffs
         
         self.inc = DoubleConv(input_channels, base_filters)
         self.down1 = Down(base_filters, base_filters * 2)
@@ -201,7 +202,14 @@ class RestorationNet(nn.Module):
         
         self.outc = OutConv(base_filters, n_classes)
 
-    def forward(self, x_input):
+    def forward(self, x_input, coeffs_map=None):
+        """
+        Args:
+            x_input: [B, C, H, W] 模糊图像
+            coeffs_map: [B, n_coeffs, H, W] 可选的 Zernike 系数空间分布图。
+                        当 n_coeffs > 0 时，将物理层预测的像差信息注入网络，
+                        使复原从"盲去卷积"变为"非盲去卷积"。
+        """
         # Input x_input: [B, C, H, W]
         x = x_input
         
@@ -220,6 +228,10 @@ class RestorationNet(nn.Module):
             
             # Concatenate: [B, C+2, H, W]
             x = torch.cat([x, grid_y, grid_x], dim=1)
+        
+        # 物理信息注入: 将 Zernike 系数图拼接到输入
+        if coeffs_map is not None and self.n_coeffs > 0:
+            x = torch.cat([x, coeffs_map], dim=1)
             
         x1 = self.inc(x)
         x2 = self.down1(x1)

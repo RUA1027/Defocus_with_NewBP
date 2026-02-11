@@ -43,12 +43,20 @@ class PhysicsConfig:
     oversample_factor: int = 2
     ref_wavelength: float = 550e-9
     wavelengths: List[float] = field(default_factory=lambda: [620e-9, 550e-9, 450e-9])
+    learnable_wavelengths: bool = False
+    wavelength_bounds: List[float] = field(default_factory=lambda: [400e-9, 700e-9])
     
     def __post_init__(self):
         if self.kernel_size % 2 == 0:
             raise ValueError(f"kernel_size 必须为奇数，当前值: {self.kernel_size}")
         if self.n_modes < 1 or self.n_modes > 36:
             raise ValueError(f"n_modes 必须在 1-36 之间，当前值: {self.n_modes}")
+        if (not isinstance(self.wavelength_bounds, list)
+                or len(self.wavelength_bounds) != 2
+                or self.wavelength_bounds[0] >= self.wavelength_bounds[1]):
+            raise ValueError(f"wavelength_bounds 必须为 [min, max]，当前值: {self.wavelength_bounds}")
+        if any((w < self.wavelength_bounds[0] or w > self.wavelength_bounds[1]) for w in self.wavelengths):
+            raise ValueError("wavelengths 必须在 wavelength_bounds 范围内")
 
 
 @dataclass
@@ -101,6 +109,8 @@ class RestorationNetConfig:
     base_filters: int = 64
     bilinear: bool = True
     use_coords: bool = True
+    use_physics_injection: bool = True    # 是否注入 Zernike 系数图
+    injection_grid_size: int = 16         # 系数图采样网格大小
     channel_multipliers: List[int] = field(default_factory=lambda: [1, 2, 4, 8, 8])
 
 

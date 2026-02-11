@@ -521,6 +521,19 @@ class DualBranchTrainer:
     def get_stage_weights(self, epoch: int):
         return self._get_stage_weights(self._get_stage(epoch))
 
+    def _generate_coeffs_map(self, H, W, crop_info=None, batch_size=1, grid_size=16):
+        """
+        从物理层生成系数空间分布图，用于注入复原网络。
+        当复原网络不支持系数注入 (n_coeffs=0) 或物理层不存在时，返回 None。
+        """
+        if (not self.use_physical_layer or self.physical_layer is None 
+                or getattr(self.restoration_net, 'n_coeffs', 0) == 0):
+            return None
+        return self.physical_layer.generate_coeffs_map(
+            H, W, self.device, grid_size=grid_size,
+            crop_info=crop_info, batch_size=batch_size
+        )
+
     # =========================================================================
     #                              核心训练步骤
     # =========================================================================
@@ -602,7 +615,12 @@ class DualBranchTrainer:
         else:
             if self.physical_layer is None or self.aberration_net is None:
                 raise RuntimeError("physical_layer and aberration_net are required for this stage")
-            X_hat = self.restoration_net(Y_blur)
+            # 生成系数图并注入复原网络 (物理感知复原)
+            coeffs_map = self._generate_coeffs_map(
+                Y_blur.shape[2], Y_blur.shape[3],
+                crop_info=crop_info, batch_size=Y_blur.shape[0]
+            )
+            X_hat = self.restoration_net(Y_blur, coeffs_map=coeffs_map)
             Y_reblur = self.physical_layer(X_hat, crop_info=crop_info)
             loss_data = self.criterion_mse(Y_reblur, Y_blur)
             loss_sup = self.criterion_l1(X_hat, X_gt)

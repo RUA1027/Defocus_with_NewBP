@@ -314,6 +314,75 @@ class SpatiallyVaryingPhysicalLayer(nn.Module):
         dx = torch.abs(coeffs_map[:, :, 1:] - coeffs_map[:, :, :-1]).mean()
         return dy + dx
 
+    def generate_coeffs_map(self, H, W, device, grid_size=16, crop_info=None, batch_size=1):
+        """
+        生成像差系数空间分布图，用于注入到复原网络 (Physics-Aware Restoration)。
+        
+        在粗网格上采样 AberrationNet 预测系数，然后双线性插值到目标分辨率。
+        由于光学像差在空间上是平滑变化的，粗采样 + 插值既高效又物理合理。
+        
+        Args:
+            H, W: 目标分辨率
+            device: 计算设备
+            grid_size: 粗采样网格大小 (默认 16x16 = 256 点)
+            crop_info: [B, 4] 裁剪坐标信息，用于全局坐标对齐。None 则使用局部坐标。
+            batch_size: 批大小
+        
+        Returns:
+            coeffs_map: [B, n_coeffs, H, W] 系数空间分布图
+        """
+        with torch.no_grad():
+            if crop_info is not None:
+                # 逐样本生成坐标 (每张图的裁剪区域不同)
+                if crop_info.dim() == 1:
+                    crop_info = crop_info.unsqueeze(0)
+                
+                all_coords = []
+                for b in range(batch_size):
+                    ci = crop_info[b] if b < crop_info.shape[0] else crop_info[0]
+                    top_n, left_n = ci[0].item(), ci[1].item()
+                    h_n, w_n = ci[2].item(), ci[3].item()
+                    
+                    if h_n > 0 and w_n > 0:
+                        # 映射到全局坐标 [-1, 1]
+                        y_s = top_n * 2 - 1
+                        y_e = (top_n + h_n) * 2 - 1
+                        x_s = left_n * 2 - 1
+                        x_e = (left_n + w_n) * 2 - 1
+                    else:
+                        y_s, y_e, x_s, x_e = -1.0, 1.0, -1.0, 1.0
+                    
+                    y = torch.linspace(y_s, y_e, grid_size, device=device)
+                    x = torch.linspace(x_s, x_e, grid_size, device=device)
+                    gy, gx = torch.meshgrid(y, x, indexing='ij')
+                    coords = torch.stack([gy.flatten(), gx.flatten()], dim=1)  # [G^2, 2]
+                    all_coords.append(coords)
+                
+                # 批量前向: [B*G^2, 2] -> [B*G^2, n_coeffs]
+                all_coords_cat = torch.cat(all_coords, dim=0)
+                all_coeffs = self.aberration_net(all_coords_cat)
+                n_coeffs = all_coeffs.shape[1]
+                
+                # 重塑为 [B, n_coeffs, G, G]，然后插值
+                all_coeffs = all_coeffs.view(batch_size, grid_size, grid_size, n_coeffs)
+                all_coeffs = all_coeffs.permute(0, 3, 1, 2)  # [B, n_coeffs, G, G]
+                coeffs_map = F.interpolate(all_coeffs, size=(H, W), mode='bilinear', align_corners=True)
+            else:
+                # 无裁剪信息: 所有样本共享同一坐标网格
+                y = torch.linspace(-1, 1, grid_size, device=device)
+                x = torch.linspace(-1, 1, grid_size, device=device)
+                gy, gx = torch.meshgrid(y, x, indexing='ij')
+                coords = torch.stack([gy.flatten(), gx.flatten()], dim=1)  # [G^2, 2]
+                
+                coeffs = self.aberration_net(coords)  # [G^2, n_coeffs]
+                n_coeffs = coeffs.shape[1]
+                
+                cmap = coeffs.view(1, grid_size, grid_size, n_coeffs).permute(0, 3, 1, 2)
+                cmap = F.interpolate(cmap, size=(H, W), mode='bilinear', align_corners=True)
+                coeffs_map = cmap.expand(batch_size, -1, -1, -1)  # [B, n_coeffs, H, W]
+            
+            return coeffs_map
+
     def forward(self, x_hat, crop_info=None):
         """
         x_hat: [B, C, H, W] (输入图像)

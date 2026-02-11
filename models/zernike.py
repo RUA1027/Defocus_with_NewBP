@@ -228,7 +228,7 @@ class DifferentiableZernikeGenerator(nn.Module):
     def __init__(self, n_modes, pupil_size, kernel_size, 
                  oversample_factor=2, 
                  wavelengths=None, ref_wavelength=550e-9,
-                 device='cpu'):
+                 device='cpu', learnable_wavelengths=False, wavelength_bounds=None):
         """
         Args:
             n_modes: Zernike 模式数量
@@ -238,14 +238,40 @@ class DifferentiableZernikeGenerator(nn.Module):
             wavelengths: List of wavelengths [R, G, B] in meters. If None, mono (ref_wavelength).
             ref_wavelength: Reference wavelength for the coefficients.
             device: 计算设备
+            learnable_wavelengths: 是否将波长设为可学习参数。
+            wavelength_bounds: 波长范围 [min, max]，用于约束可学习波长。
         """
         super().__init__()
         self.n_modes = n_modes
         self.pupil_size = pupil_size
         self.kernel_size = kernel_size
         self.oversample_factor = oversample_factor
+        self.learnable_wavelengths = learnable_wavelengths
+        self.wavelength_bounds = wavelength_bounds if wavelength_bounds is not None else [400e-9, 700e-9]
         self.wavelengths = wavelengths if wavelengths is not None else [ref_wavelength]
         self.ref_wavelength = ref_wavelength
+
+        if (not isinstance(self.wavelength_bounds, (list, tuple))
+                or len(self.wavelength_bounds) != 2
+                or self.wavelength_bounds[0] >= self.wavelength_bounds[1]):
+            raise ValueError(f"Invalid wavelength_bounds: {self.wavelength_bounds}")
+
+        if self.learnable_wavelengths:
+            min_w, max_w = self.wavelength_bounds
+            wavelengths_tensor = torch.tensor(self.wavelengths, device=device, dtype=torch.float32)
+            denom = max_w - min_w
+            if denom <= 0:
+                raise ValueError(f"Invalid wavelength bounds: {self.wavelength_bounds}")
+            eps = 1e-6
+            normalized = (wavelengths_tensor - min_w) / denom
+            normalized = torch.clamp(normalized, eps, 1.0 - eps)
+            raw = torch.log(normalized / (1.0 - normalized))
+            self.raw_wavelengths = nn.Parameter(raw)
+        else:
+            self.register_buffer(
+                "wavelengths_tensor",
+                torch.tensor(self.wavelengths, device=device, dtype=torch.float32)
+            )
         
         # [Fix] Enforce odd kernel size for alignment
         if kernel_size % 2 == 0:
@@ -267,8 +293,9 @@ class DifferentiableZernikeGenerator(nn.Module):
         
         # 2. Multi-wavelength Loop
         psf_channels = []
-        
-        for lam in self.wavelengths:
+
+        wavelengths = self._get_wavelengths()
+        for lam in wavelengths:
             # Scale phase: phi_lambda = phi_ref * (lambda_ref / lambda)
             scale = self.ref_wavelength / lam
             phi = phi_ref * scale
@@ -368,6 +395,13 @@ class DifferentiableZernikeGenerator(nn.Module):
             
         # Stack channels: [B, C, K, K]
         return torch.stack(psf_channels, dim=1)
+
+    def _get_wavelengths(self):
+        if self.learnable_wavelengths:
+            min_w, max_w = self.wavelength_bounds
+            scale = torch.sigmoid(self.raw_wavelengths)
+            return min_w + (max_w - min_w) * scale
+        return self.wavelengths_tensor
     
 '''
 AberrationNet 输出
