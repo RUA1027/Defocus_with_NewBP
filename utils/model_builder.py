@@ -162,7 +162,9 @@ def build_trainer_from_config(config: Config, restoration_net, physical_layer, d
         accumulation_steps=accumulation_steps,
         device=device,
         tensorboard_dir=tensorboard_dir,
-        circuit_breaker_config=circuit_breaker_config
+        circuit_breaker_config=circuit_breaker_config,
+        charbonnier_eps=getattr(config.training.loss, 'charbonnier_eps', 1e-6),
+        lambda_fft=getattr(config.training.loss, 'lambda_fft', 0.1)
     )
     
     return trainer

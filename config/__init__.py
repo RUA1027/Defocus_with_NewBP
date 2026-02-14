@@ -130,6 +130,8 @@ class LossConfig:
     lambda_coeff: float = 0.01
     lambda_smooth: float = 0.01
     lambda_image_reg: float = 0.001
+    lambda_fft: float = 0.1          # FFT 频域损失权重
+    charbonnier_eps: float = 1e-6    # Charbonnier 损失平滑参数 ε
 
 
 @dataclass

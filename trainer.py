@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.fft
 import os
 import time
 from typing import Any, Mapping, Optional, Dict, Union
@@ -69,6 +70,66 @@ except ImportError:
 │  验证判据: 综合指标 (PSNR + 物理约束)                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
 '''
+# =============================================================================
+#                          损失函数模块 (Loss Functions)
+# =============================================================================
+
+class CharbonnierLoss(nn.Module):
+    """
+    Charbonnier Loss (可微的 L1 近似)
+    
+    L = mean( sqrt( (x - y)^2 + eps^2 ) )
+    
+    相比 L1 Loss 的优势:
+    - 在零点处可微，梯度连续，训练更稳定
+    - eps 控制逼近 L1 的程度：eps→0 时退化为 L1
+    - 对异常值 (outlier) 的鲁棒性介于 L1 和 L2 之间
+    """
+    def __init__(self, eps=1e-6):
+        super().__init__()
+        self.eps_sq = eps ** 2
+
+    def forward(self, x, y):
+        diff = x - y
+        return torch.mean(torch.sqrt(diff * diff + self.eps_sq))
+
+
+class FFTLoss(nn.Module):
+    """
+    频域 FFT Loss
+    
+    L = mean( |F(x) - F(y)| )
+    
+    通过在频域计算差异，迫使网络关注高频细节（边缘、纹理），
+    弥补空域损失函数倾向于过度平滑的不足。
+    """
+    def forward(self, x, y):
+        # 2D FFT (在最后两个维度 H, W 上)
+        fft_x = torch.fft.rfft2(x, norm='ortho')
+        fft_y = torch.fft.rfft2(y, norm='ortho')
+        # 复数差的模
+        return torch.mean(torch.abs(fft_x - fft_y))
+
+
+class SupervisedLoss(nn.Module):
+    """
+    复合监督损失 = Charbonnier + λ_fft × FFT Loss
+    
+    L_sup = sqrt((X_hat - X_gt)^2 + ε^2) + λ_fft × |F(X_hat) - F(X_gt)|
+    
+    - Charbonnier 部分保证空域像素级精度
+    - FFT 部分强制高频纹理/边缘对齐
+    """
+    def __init__(self, charbonnier_eps=1e-6, lambda_fft=0.1):
+        super().__init__()
+        self.charbonnier = CharbonnierLoss(eps=charbonnier_eps)
+        self.fft_loss = FFTLoss()
+        self.lambda_fft = lambda_fft
+
+    def forward(self, x, y):
+        return self.charbonnier(x, y) + self.lambda_fft * self.fft_loss(x, y)
+
+
 class DualBranchTrainer:
     """
     三阶段解耦训练器 (Three-Stage Decoupled Trainer)
@@ -83,6 +144,9 @@ class DualBranchTrainer:
     - 熔断机制 (Circuit Breaker)
     - TensorBoard 日志
     - Stage 3 学习率自动减半
+    
+    监督损失函数:
+      L_sup = Charbonnier(X_hat, X_gt) + λ_fft × FFTLoss(X_hat, X_gt)
     """
 
     VALID_STAGES = ('physics_only', 'restoration_fixed_physics', 'joint', 'restoration_only')
@@ -107,7 +171,9 @@ class DualBranchTrainer:
                  device='cuda',
                  accumulation_steps=4,
                  tensorboard_dir=None,
-                 circuit_breaker_config=None):
+                 circuit_breaker_config=None,
+                 charbonnier_eps=1e-6,
+                 lambda_fft=0.1):
 
         self.device = device
         self.restoration_net = restoration_net.to(device)
@@ -165,7 +231,11 @@ class DualBranchTrainer:
 
         # 损失函数
         self.criterion_mse = nn.MSELoss()
-        self.criterion_l1 = nn.L1Loss()
+        self.criterion_sup = SupervisedLoss(
+            charbonnier_eps=charbonnier_eps,
+            lambda_fft=lambda_fft
+        )
+        self.lambda_fft = lambda_fft  # 记录用于日志
 
         # 当前训练阶段
         self._current_stage = 'joint' if self.use_physical_layer else 'restoration_only'
@@ -595,7 +665,7 @@ class DualBranchTrainer:
 
         if not self.use_physical_layer:
             X_hat = self.restoration_net(Y_blur)
-            loss_sup = self.criterion_l1(X_hat, X_gt)
+            loss_sup = self.criterion_sup(X_hat, X_gt)
 
             if w_img_reg > 0:
                 loss_image_reg = self.compute_image_tv_loss(X_hat)
@@ -628,7 +698,7 @@ class DualBranchTrainer:
             X_hat = self.restoration_net(Y_blur, coeffs_map=coeffs_map)
             Y_reblur = self.physical_layer(X_hat, crop_info=crop_info)
             loss_data = self.criterion_mse(Y_reblur, Y_blur)
-            loss_sup = self.criterion_l1(X_hat, X_gt)
+            loss_sup = self.criterion_sup(X_hat, X_gt)
 
             if w_img_reg > 0:
                 loss_image_reg = self.compute_image_tv_loss(X_hat)

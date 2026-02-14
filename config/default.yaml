@@ -21,8 +21,8 @@ physics:
     - 620.0e-9                   # 红光
     - 550.0e-9                   # 绿光
     - 450.0e-9                   # 蓝光
-  learnable_wavelengths: false   # 是否启用自适应波长
-  wavelength_bounds: [400.0e-9, 700.0e-9]  # 波长范围约束
+  learnable_wavelengths: true   # 是否启用自适应波长
+  wavelength_bounds: [380.0e-9, 780.0e-9]  # 波长范围约束
 
 # -----------------------------------------------------------------------------
 # 空间变化卷积层 (OLA - Overlap-Add)
@@ -99,6 +99,8 @@ training:
     lambda_coeff: 0.05           # 系数正则权重
     lambda_smooth: 0.1           # 平滑正则权重
     lambda_image_reg: 0.001      # 图像 TV 正则权重
+    lambda_fft: 0.1              # FFT 频域损失权重 (控制高频细节约束强度)
+    charbonnier_eps: 1.0e-3      # Charbonnier 损失平滑参数 ε (越小越接近 L1)
   
   # 三阶段损失权重配置 (Stage Weights)
   # 这里定义每个阶段具体的权重组合
