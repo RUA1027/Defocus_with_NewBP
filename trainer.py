@@ -126,8 +126,15 @@ class SupervisedLoss(nn.Module):
         self.fft_loss = FFTLoss()
         self.lambda_fft = lambda_fft
 
+    def components(self, x, y):
+        """返回监督损失的两个组成项，便于日志诊断。"""
+        charb = self.charbonnier(x, y)
+        fft = self.fft_loss(x, y)
+        return charb, fft
+
     def forward(self, x, y):
-        return self.charbonnier(x, y) + self.lambda_fft * self.fft_loss(x, y)
+        charb, fft = self.components(x, y)
+        return charb + self.lambda_fft * fft
 
 
 class DualBranchTrainer:
@@ -662,10 +669,13 @@ class DualBranchTrainer:
         loss_coeff = torch.tensor(0.0, device=self.device)
         loss_smooth = torch.tensor(0.0, device=self.device)
         loss_image_reg = torch.tensor(0.0, device=self.device)
+        loss_sup_charb = torch.tensor(0.0, device=self.device)
+        loss_sup_fft = torch.tensor(0.0, device=self.device)
 
         if not self.use_physical_layer:
             X_hat = self.restoration_net(Y_blur)
-            loss_sup = self.criterion_sup(X_hat, X_gt)
+            loss_sup_charb, loss_sup_fft = self.criterion_sup.components(X_hat, X_gt)
+            loss_sup = loss_sup_charb + self.lambda_fft * loss_sup_fft
 
             if w_img_reg > 0:
                 loss_image_reg = self.compute_image_tv_loss(X_hat)
@@ -773,6 +783,9 @@ class DualBranchTrainer:
             'loss_image_reg': loss_image_reg_w.item(),
             'loss_data_raw': loss_data.item(),
             'loss_sup_raw': loss_sup.item(),
+            'loss_sup_charb_raw': loss_sup_charb.item(),
+            'loss_sup_fft_raw': loss_sup_fft.item(),
+            'loss_sup_fft_weighted_raw': (self.lambda_fft * loss_sup_fft).item(),
             'loss_coeff_raw': loss_coeff.item(),
             'loss_smooth_raw': loss_smooth.item(),
             'loss_image_reg_raw': loss_image_reg.item(),

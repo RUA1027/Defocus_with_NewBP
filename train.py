@@ -273,6 +273,9 @@ def main():
         epoch_loss = 0.0
         epoch_loss_data = 0.0
         epoch_loss_sup = 0.0
+        epoch_loss_sup_raw = 0.0
+        epoch_loss_sup_charb_raw = 0.0
+        epoch_loss_sup_fft_raw = 0.0
         steps = 0
         
         pbar = tqdm(train_loader, desc=f"Train E{current_epoch}")
@@ -300,6 +303,9 @@ def main():
             epoch_loss += metrics['loss']
             epoch_loss_data += metrics['loss_data']
             epoch_loss_sup += metrics['loss_sup']
+            epoch_loss_sup_raw += metrics.get('loss_sup_raw', metrics['loss_sup'])
+            epoch_loss_sup_charb_raw += metrics.get('loss_sup_charb_raw', 0.0)
+            epoch_loss_sup_fft_raw += metrics.get('loss_sup_fft_raw', 0.0)
             steps += 1
             
             # 更新进度条
@@ -307,15 +313,25 @@ def main():
                 pbar.set_postfix({
                     'Loss': f"{metrics['loss']:.4f}",
                     'Data': f"{metrics['loss_data']:.4f}",
-                    'Sup': f"{metrics['loss_sup']:.4f}",
+                    'SupW': f"{metrics['loss_sup']:.4f}",
+                    'SupRaw': f"{metrics.get('loss_sup_raw', metrics['loss_sup']):.4f}",
+                    'Charb': f"{metrics.get('loss_sup_charb_raw', 0.0):.4f}",
+                    'FFT': f"{metrics.get('loss_sup_fft_raw', 0.0):.4f}",
                     'GradW': f"{metrics.get('grad_W', 0):.2f}"
                 })
             
         avg_loss = epoch_loss / max(steps, 1)
         avg_loss_data = epoch_loss_data / max(steps, 1)
         avg_loss_sup = epoch_loss_sup / max(steps, 1)
+        avg_loss_sup_raw = epoch_loss_sup_raw / max(steps, 1)
+        avg_loss_sup_charb_raw = epoch_loss_sup_charb_raw / max(steps, 1)
+        avg_loss_sup_fft_raw = epoch_loss_sup_fft_raw / max(steps, 1)
         
-        print(f"  Train Loss: {avg_loss:.6f} (Data: {avg_loss_data:.6f}, Sup: {avg_loss_sup:.6f})")
+        print(
+            f"  Train Loss: {avg_loss:.6f} "
+            f"(Data: {avg_loss_data:.6f}, SupW: {avg_loss_sup:.6f}, "
+            f"SupRaw: {avg_loss_sup_raw:.6f}, Charb: {avg_loss_sup_charb_raw:.6f}, FFT: {avg_loss_sup_fft_raw:.6f})"
+        )
         
         # --- Validation Phase ---
         print("  Evaluating on validation set...")
