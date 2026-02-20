@@ -15,7 +15,7 @@ This implementation features:
 
 ## Architecture
 
-```
+```text
 Input (Blurred Y) 
     ↓
     ├─→ RestorationNet (U-Net) ─→ Restored X̂
@@ -57,12 +57,14 @@ python train.py --resume results/latest.pt
 ```
 
 **Training Stages:**
+
 1. **Stage 1 (Physics Only)**: Trains `AberrationNet` using Re-blur Consistency Loss. Validates via Re-blur MSE.
 2. **Stage 2 (Restoration)**: Freezes physics, trains `RestorationNet` using paired data. Validates via PSNR & SSIM.
 3. **Stage 3 (Joint Finetuning)**: Unfreezes all modules, learning rate halved. Validates via Combined Metric.
 
 **Circuit Breaker Mechanism:**
 The system uses strict quality thresholds to prevent premature stage transitions:
+
 - To enter Stage 2: Physics Re-blur MSE must be < `0.005`.
 - To enter Stage 3: Restoration PSNR > `30.0` AND SSIM > `0.95`.
 - If thresholds are not met, the current stage continues training.
@@ -80,13 +82,15 @@ python test.py --checkpoint results/best_stage2_psnr.pt --save-restored
 ```
 
 This will generate:
+
 - CSV report (`test_results.csv`) with PSNR, SSIM, LPIPS, Reblur_MSE for every image.
 - Visual comparisons in `results/test_<timestamp>/comparisons`.
 
 ### Data Preparation (DPDD Dataset)
 
 1. Place the DPDD dataset in `data/dd_dp_dataset_png/`. Structure:
-   ```
+
+    ```text
    data/dd_dp_dataset_png/
        train_c/
            source/ (blur)
@@ -94,10 +98,13 @@ This will generate:
        val_c/
        test_c/
    ```
+
 2. Verify data integrity (Optional):
+
    ```bash
    python data/preprocess_dpdd.py
    ```
+
    *Note: This implementation reads directly from the source folders. No resizing preprocessing is required.*
 
 ### Run Tests
@@ -108,14 +115,11 @@ python -m tests.test_psf_normalization
 
 # Test gradient flow through physics layer
 python -m tests.test_backward_flow
-
-# Test NewBP custom autograd function
-python -m tests.test_newbp_jacobian
 ```
 
 ## File Structure
 
-```
+```text
 defocus/
 ├── config/                   # Configuration files (YAML)
 ├── data/                     # Data loading and preprocessing
@@ -123,7 +127,6 @@ defocus/
 ├── models/
 │   ├── __init__.py           # Module exports
 │   ├── zernike.py            # Zernike basis & PSF generation
-│   ├── newbp_convolution.py  # Custom Autograd for physics-aware gradients
 │   ├── physical_layer.py     # OLA spatially-varying convolution
 │   ├── aberration_net.py     # MLP for Zernike coefficients
 │   └── restoration_net.py    # U-Net image restoration
@@ -183,23 +186,7 @@ blurred = torch.randn(2, 1, 256, 256)
 restored = net(blurred)  # [2, 1, 256, 256]
 ```
 
-### 4. NewBP Spatial Convolution (`models/newbp_convolution.py`)
-
-A custom Autograd function designed to handle the gradient flow of spatially-varying blur correctly.
-
-```python
-from models.newbp_convolution import NewBPSpatialConvolution
-
-# Enable comparison mode (diagonal gradients only) for ablation studies
-conv = NewBPSpatialConvolution(use_diagonal_only=False)
-```
-
-**Features:**
-- **Exact Gradient Decomposition**: Separates gradients into **Direct** (Diagonal) and **Indirect** (Crosstalk) components via a non-diagonal Jacobian.
-- **GPU Optimization**: Uses spatial `F.conv2d` with CuDNN optimizations (Winograd/Im2Col) for small kernels ($K \le 33$), significantly faster than FFT-based approaches for this kernel size regime.
-- **Ablation Support**: Supports `use_diagonal_only=True` to simulate traditional gradients that ignore spatial crosstalk.
-
-### 5. Physical Layer (`models/physical_layer.py`)
+### 4. Physical Layer (`models/physical_layer.py`)
 
 Spatially-varying convolution via Overlap-Add:
 
@@ -217,7 +204,7 @@ sharp_image = torch.randn(2, 1, 256, 256)
 blurred_image = layer(sharp_image)  # [2, 1, 256, 256]
 ```
 
-## Training
+## Trainer Usage
 
 ### Basic Usage
 
@@ -268,7 +255,7 @@ plot_coefficient_maps(physical_layer, H=256, W=256, device='cuda', filename='coe
 - Patch size: P = 128 pixels
 - Stride: S = 64 pixels (50% overlap)
 - Window: Hann 2D for smooth blending
-- Convolution: **NewBP Spatial Convolution** (see above) allows for precise gradient control during backpropagation.
+- Convolution: grouped spatial `F.conv2d`; gradients are handled by PyTorch autograd.
 
 ### Optimization
 
@@ -280,7 +267,6 @@ plot_coefficient_maps(physical_layer, H=256, W=256, device='cuda', filename='coe
 
 ✅ **PSF Normalization Test**: All kernels sum to 1.0000 ± 1e-5  
 ✅ **Gradient Flow Test**: Gradients successfully propagate to both W and Θ  
-✅ **NewBP Jacobian Test**: Verified non-diagonal structure of the convolution Jacobian.
 ✅ **Demo Training**: Loss converges, gradients remain active
 
 ## References
